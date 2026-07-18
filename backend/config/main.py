@@ -14,7 +14,11 @@ from backend.utils.logging_config import setup_logging
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
-    setup_logging(log_level=settings.log_level, log_format=settings.log_format)
+    setup_logging(
+        log_level=settings.log_level,
+        log_format=settings.log_format,
+        environment=settings.app_env,
+    )
     yield
     # Shutdown
     pass
