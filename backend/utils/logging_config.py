@@ -92,14 +92,7 @@ def setup_logging(
     if log_format == "json":
         logger.add(
             sys.stderr,
-            format=lambda record: (
-                f'{{"time": "{record["time"]}", '
-                f'"level": "{record["level"].name}", '
-                f'"message": "{record["message"]}", '
-                f'"module": "{record["name"]}", '
-                f'"function": "{record["function"]}", '
-                f'"line": {record["line"]}}}'
-            ),
+            serialize=True,
             level=console_log_level,
             enqueue=True,
             colorize=False,

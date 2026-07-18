@@ -2,11 +2,30 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.routes import router
 from backend.config.config import settings
+from backend.core.error_handlers import (
+    agent_exception_handler,
+    authentication_exception_handler,
+    authorization_exception_handler,
+    external_service_exception_handler,
+    general_exception_handler,
+    http_exception_handler,
+    not_found_exception_handler,
+    validation_exception_handler,
+)
+from backend.core.exceptions import (
+    AgentException,
+    AuthenticationException,
+    AuthorizationException,
+    ExternalServiceException,
+    NotFoundException,
+    ValidationException,
+)
+from backend.core.middleware import RequestIDMiddleware
 from backend.utils.logging_config import setup_logging
 
 
@@ -33,6 +52,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request ID middleware
+app.add_middleware(RequestIDMiddleware)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +63,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register exception handlers
+app.add_exception_handler(ValidationException, validation_exception_handler)
+app.add_exception_handler(NotFoundException, not_found_exception_handler)
+app.add_exception_handler(AuthenticationException, authentication_exception_handler)
+app.add_exception_handler(AuthorizationException, authorization_exception_handler)
+app.add_exception_handler(ExternalServiceException, external_service_exception_handler)
+app.add_exception_handler(AgentException, agent_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 # Include routers
 app.include_router(router, prefix="/api/v1")
