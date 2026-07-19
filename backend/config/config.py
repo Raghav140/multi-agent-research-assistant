@@ -225,7 +225,7 @@ class LLMSettings(BaseSettings):
         description="Ollama server host URL",
     )
     ollama_model: str = Field(
-        default="llama2",
+        default="qwen3:8b",
         description="Ollama model name",
     )
     ollama_timeout: int = Field(

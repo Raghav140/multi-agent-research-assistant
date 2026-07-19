@@ -10,7 +10,7 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 
 from backend.core.interfaces import LLMProvider, SearchProvider
-from backend.graph.nodes import planner_node, research_node
+from backend.graph.nodes import planner_node, research_node, report_node
 from backend.graph.state import ResearchState
 from backend.providers.papers.arxiv_provider import ArxivProvider
 
@@ -34,31 +34,6 @@ async def search_node(state: ResearchState) -> ResearchState:
     updated_state["intermediate_steps"].append({
         "node": "search",
         "action": "performed_web_search",
-        "status": "completed"
-    })
-    return updated_state
-
-
-async def report_node(state: ResearchState) -> ResearchState:
-    """Report node - synthesizes findings into a final report.
-
-    This is a placeholder node that will eventually use an LLM to synthesize
-    all gathered information into a comprehensive research report.
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with final report and answer
-    """
-    # Placeholder logic - no LLM calls
-    updated_state = state.copy()
-    updated_state["report"] = state.get("report", {})
-    updated_state["final_answer"] = state.get("final_answer", "")
-    updated_state["intermediate_steps"] = state.get("intermediate_steps", [])
-    updated_state["intermediate_steps"].append({
-        "node": "report",
-        "action": "synthesized_final_report",
         "status": "completed"
     })
     return updated_state
@@ -93,6 +68,11 @@ def build_workflow(
         """Wrapper for research node with dependency injection."""
         return await research_node(state, search_provider, arxiv_provider)
 
+    # Create wrapper for report node with dependency injection
+    async def report_wrapper(state: ResearchState) -> ResearchState:
+        """Wrapper for report node with dependency injection."""
+        return await report_node(state, llm_provider)
+
     # Create the workflow graph
     workflow = StateGraph(ResearchState)
 
@@ -100,7 +80,7 @@ def build_workflow(
     workflow.add_node("planner", planner_wrapper)
     workflow.add_node("research", research_wrapper)
     workflow.add_node("search", search_node)
-    workflow.add_node("report", report_node)
+    workflow.add_node("report", report_wrapper)
 
     # Define the workflow edges
     workflow.set_entry_point("planner")
