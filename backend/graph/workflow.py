@@ -9,33 +9,10 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 
-from backend.core.interfaces import LLMProvider
-from backend.graph.nodes import planner_node
+from backend.core.interfaces import LLMProvider, SearchProvider
+from backend.graph.nodes import planner_node, research_node
 from backend.graph.state import ResearchState
-
-
-async def research_node(state: ResearchState) -> ResearchState:
-    """Research node - performs academic research and paper retrieval.
-
-    This is a placeholder node that will eventually search academic databases
-    and retrieve relevant research papers.
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with research papers
-    """
-    # Placeholder logic - no actual research
-    updated_state = state.copy()
-    updated_state["research_papers"] = state.get("research_papers", [])
-    updated_state["intermediate_steps"] = state.get("intermediate_steps", [])
-    updated_state["intermediate_steps"].append({
-        "node": "research",
-        "action": "retrieved_research_papers",
-        "status": "completed"
-    })
-    return updated_state
+from backend.providers.papers.arxiv_provider import ArxivProvider
 
 
 async def search_node(state: ResearchState) -> ResearchState:
@@ -87,7 +64,11 @@ async def report_node(state: ResearchState) -> ResearchState:
     return updated_state
 
 
-def build_workflow(llm_provider: LLMProvider) -> StateGraph:
+def build_workflow(
+    llm_provider: LLMProvider,
+    search_provider: SearchProvider,
+    arxiv_provider: ArxivProvider,
+) -> StateGraph:
     """Build and compile the LangGraph workflow.
 
     This function creates the workflow graph, adds all nodes, and
@@ -96,6 +77,8 @@ def build_workflow(llm_provider: LLMProvider) -> StateGraph:
 
     Args:
         llm_provider: LLM provider instance for dependency injection
+        search_provider: Search provider instance for dependency injection
+        arxiv_provider: arXiv provider instance for dependency injection
 
     Returns:
         Compiled StateGraph ready for execution
@@ -105,12 +88,17 @@ def build_workflow(llm_provider: LLMProvider) -> StateGraph:
         """Wrapper for planner node with dependency injection."""
         return await planner_node(state, llm_provider)
 
+    # Create wrapper for research node with dependency injection
+    async def research_wrapper(state: ResearchState) -> ResearchState:
+        """Wrapper for research node with dependency injection."""
+        return await research_node(state, search_provider, arxiv_provider)
+
     # Create the workflow graph
     workflow = StateGraph(ResearchState)
 
     # Add nodes to the workflow
     workflow.add_node("planner", planner_wrapper)
-    workflow.add_node("research", research_node)
+    workflow.add_node("research", research_wrapper)
     workflow.add_node("search", search_node)
     workflow.add_node("report", report_node)
 
