@@ -195,6 +195,9 @@ class LLMSettings(BaseSettings):
         openai_model: OpenAI model name
         openai_temperature: Sampling temperature (0.0-2.0)
         openai_max_tokens: Maximum tokens to generate
+        ollama_host: Ollama server host URL
+        ollama_model: Ollama model name
+        ollama_timeout: Request timeout in seconds
     """
 
     openai_api_key: SecretStr = Field(
@@ -216,6 +219,20 @@ class LLMSettings(BaseSettings):
         ge=1,
         le=128000,
         description="Maximum tokens to generate",
+    )
+    ollama_host: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server host URL",
+    )
+    ollama_model: str = Field(
+        default="llama2",
+        description="Ollama model name",
+    )
+    ollama_timeout: int = Field(
+        default=120,
+        ge=1,
+        le=600,
+        description="Request timeout in seconds",
     )
 
     model_config = SettingsConfigDict(
@@ -434,6 +451,21 @@ class Settings:
     def openai_max_tokens(self) -> int:
         """Get OpenAI max tokens."""
         return self.llm.openai_max_tokens
+
+    @property
+    def ollama_host(self) -> str:
+        """Get Ollama host."""
+        return self.llm.ollama_host
+
+    @property
+    def ollama_model(self) -> str:
+        """Get Ollama model."""
+        return self.llm.ollama_model
+
+    @property
+    def ollama_timeout(self) -> int:
+        """Get Ollama timeout."""
+        return self.llm.ollama_timeout
 
     @property
     def chunk_size(self) -> int:
