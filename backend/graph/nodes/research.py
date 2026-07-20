@@ -12,6 +12,7 @@ from backend.core.interfaces import SearchProvider
 from backend.graph.state import ResearchState
 from backend.providers.papers.arxiv_provider import ArxivProvider
 from backend.utils.logging_config import get_logger
+from backend.utils.source_ranking import rank_sources
 
 logger = get_logger(__name__)
 
@@ -157,6 +158,36 @@ async def research_node(
                 "error_type": type(e).__name__,
             })
 
+    # Rank and score sources
+    ranking_start = time.time()
+    ranked_web_results, ranked_papers, ranking_metrics = rank_sources(
+        web_results=search_results,
+        papers=research_papers,
+        query=user_query,
+    )
+    ranking_time = (time.time() - ranking_start) * 1000
+
+    logger.info(
+        "Source ranking completed",
+        extra={
+            "request_id": request_id,
+            "ranking_time_ms": ranking_metrics["ranking_time_ms"],
+            "normalization_ms": ranking_metrics["normalization_ms"],
+            "scoring_ms": ranking_metrics["scoring_ms"],
+            "sorting_ms": ranking_metrics["sorting_ms"],
+            "duplicate_detection_ms": ranking_metrics["duplicate_detection_ms"],
+            "duplicates_removed": ranking_metrics["duplicates_removed"],
+            "sources_before": ranking_metrics["sources_before"],
+            "sources_after": ranking_metrics["sources_after"],
+            "academic_query": ranking_metrics["academic_query"],
+            "academic_sources_selected": ranking_metrics["academic_sources_selected"],
+            "final_sources_used": ranking_metrics["final_sources_used"],
+            "average_source_score": ranking_metrics["average_source_score"],
+            "highest_source_score": ranking_metrics["highest_source_score"],
+            "lowest_source_score": ranking_metrics["lowest_source_score"],
+        },
+    )
+
     execution_time = time.time() - start_time
 
     logger.info(
@@ -172,18 +203,21 @@ async def research_node(
         },
     )
 
-    # Update state with results
+    # Update state with ranked results
     updated_state = state.copy()
-    updated_state["search_results"] = search_results
-    updated_state["research_papers"] = research_papers
+    updated_state["search_results"] = ranked_web_results
+    updated_state["research_papers"] = ranked_papers
+    updated_state["ranking_metrics"] = ranking_metrics
     updated_state["intermediate_steps"] = state.get("intermediate_steps", [])
     updated_state["intermediate_steps"].append({
         "node": "research",
         "action": "retrieved_research_data",
         "status": "completed" if not errors else "partial",
-        "num_web_results": len(search_results),
-        "num_papers": len(research_papers),
+        "num_web_results": len(ranked_web_results),
+        "num_papers": len(ranked_papers),
         "num_errors": len(errors),
+        "ranking_time_ms": ranking_time,
+        "duplicates_removed": ranking_metrics["duplicates_removed"],
     })
 
     # Append errors if any

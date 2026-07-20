@@ -109,13 +109,13 @@ class OllamaProvider(LLMProvider):
         )
 
         try:
-            # Build options for Ollama API
+            # Build options for Ollama API (optimized for speed)
             options = {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "top_k": 20,
-                "top_p": 0.8,
-                "repeat_penalty": 1.1,
+                "top_k": 10,  # Reduced from 20 for faster sampling
+                "top_p": 0.9,  # Increased from 0.8 for more focused sampling
+                "repeat_penalty": 1.15,  # Increased from 1.1 to reduce repetition
             }
 
             # Disable reasoning mode for Qwen3 if configured

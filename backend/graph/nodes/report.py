@@ -14,6 +14,47 @@ from backend.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def append_references_section(report: str, search_results: list[dict[str, Any]], research_papers: list[dict[str, Any]]) -> str:
+    """Append numbered references section to the report.
+    
+    Args:
+        report: Generated report content
+        search_results: Ranked web search results
+        research_papers: Ranked academic papers
+        
+    Returns:
+        Report with references section appended
+    """
+    if not search_results and not research_papers:
+        return report
+    
+    references = []
+    
+    # Add web search results
+    for i, result in enumerate(search_results[:2], 1):
+        ref = f"[{i}] {result.get('title', 'N/A')}"
+        if result.get('url'):
+            ref += f"\n    URL: {result.get('url')}"
+        references.append(ref)
+    
+    # Add academic papers
+    ref_offset = len(search_results[:2])
+    for i, paper in enumerate(research_papers[:1], 1):
+        ref_num = ref_offset + i
+        ref = f"[{ref_num}] {paper.get('title', 'N/A')}"
+        if paper.get('entry_id'):
+            ref += f"\n    arXiv: {paper.get('entry_id')}"
+        if paper.get('pdf_url'):
+            ref += f"\n    PDF: {paper.get('pdf_url')}"
+        references.append(ref)
+    
+    # Append references section if not already present
+    if "## References" not in report:
+        report += "\n\n## References\n\n" + "\n\n".join(references)
+    
+    return report
+
+
 async def report_node(
     state: ResearchState,
     llm_provider: LLMProvider,
@@ -47,61 +88,33 @@ async def report_node(
         },
     )
 
-    # Build the prompt
+    # Build the prompt with improved structure and references (optimized)
     prompt_parts = [
-        "You are a fast research report generator.",
-        "Do not explain your reasoning.",
-        "Do not analyze your process.",
-        "Only output the final answer.",
-        "Start directly with the report.",
-        "",
-        f"User Question: {user_query}",
+        f"Question: {user_query}",
         "",
     ]
 
-
-    # Add web search results (deduplicated and limited)
+    # Add web search results with reference numbers
     if search_results:
-        # Deduplicate by URL
-        seen_urls = set()
-        unique_results = []
-        for result in search_results:
-            url = result.get('url', '')
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_results.append(result)
-        
-        prompt_parts.append("Web Search Results:")
-        for i, result in enumerate(unique_results[:2], 1):  # Reduced from 3 to 2
-            prompt_parts.append(f"{i}. {result.get('title', 'N/A')}")
-            prompt_parts.append(f"   Snippet: {result.get('snippet', 'N/A')[:80]}...")  # Reduced from 100 to 80
+        prompt_parts.append("Sources:")
+        for i, result in enumerate(search_results[:2], 1):
+            prompt_parts.append(f"[{i}] {result.get('title', 'N/A')}")
+            prompt_parts.append(f"    {result.get('snippet', 'N/A')[:60]}...")
         prompt_parts.append("")
 
-    # Add research papers (limited)
+    # Add research papers with reference numbers
     if research_papers:
-        prompt_parts.append("Academic Papers:")
-        for i, paper in enumerate(research_papers[:1], 1):  # Reduced from 2 to 1
-            prompt_parts.append(f"{i}. {paper.get('title', 'N/A')}")
-            prompt_parts.append(f"   Abstract: {paper.get('abstract', 'N/A')[:120]}...")  # Reduced from 150 to 120
+        ref_offset = len(search_results[:2]) if search_results else 0
+        for i, paper in enumerate(research_papers[:1], 1):
+            ref_num = ref_offset + i
+            prompt_parts.append(f"[{ref_num}] {paper.get('title', 'N/A')}")
+            prompt_parts.append(f"    {paper.get('abstract', 'N/A')[:80]}...")
         prompt_parts.append("")
 
     prompt_parts.extend([
-        "Write a concise research report.",
-        "",
-        "Use only the provided sources.",
-        "",
-        "Structure:",
-        "- Summary",
-        "- Key findings",
-        "- Important evidence",
-        "- Sources",
-        "",
-        "Rules:",
-        "- Do not show reasoning steps.",
-        "- Do not explain your thought process.",
-        "- Only provide the final answer.",
-        "",
-        "Generate the report now:"
+        "Write a concise Markdown report. Structure: ## Summary, ## Key Findings, ## Important Evidence, ## References.",
+        "Use numbered citations [1], [2] matching sources above. No invented citations.",
+        "Start directly with ## Summary. No reasoning or explanations.",
     ])
 
     prompt = "\n".join(prompt_parts)
@@ -126,11 +139,14 @@ async def report_node(
         # Generate report using LLM provider
         report = await llm_provider.generate(
             prompt=prompt,
-            temperature=0.5,  # Moderate temperature for balanced creativity
-            max_tokens=512,  # Further optimized for faster report generation
+            temperature=0.5,
+            max_tokens=384,  # Reduced for faster generation
             request_id=request_id,
             function_name="report",
         )
+
+        # Append references section
+        report_with_refs = append_references_section(report, search_results, research_papers)
 
         execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
 
@@ -140,18 +156,19 @@ async def report_node(
                 "request_id": request_id,
                 "execution_time_ms": execution_time,
                 "prompt_length": len(prompt),
-                "report_length": len(report),
+                "report_length": len(report_with_refs),
                 "sources_received": len(search_results),
-                "sources_used_in_prompt": len(unique_results[:2]) if search_results else 0,
+                "sources_used_in_prompt": len(search_results[:2]) if search_results else 0,
                 "papers_received": len(research_papers),
                 "papers_used_in_prompt": len(research_papers[:1]) if research_papers else 0,
+                "references_appended": True,
             },
         )
 
         # Update state with results (avoid duplicate storage)
         updated_state = state.copy()
         updated_state["report"] = {
-            "content": report,
+            "content": report_with_refs,
             "sources": {
                 "web_results": len(search_results),
                 "papers": len(research_papers),
@@ -166,7 +183,7 @@ async def report_node(
             "action": "synthesized_final_report",
             "status": "completed",
             "execution_time_ms": execution_time,
-            "report_length": len(report),
+            "report_length": len(report_with_refs),
         })
 
         return updated_state

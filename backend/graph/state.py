@@ -28,6 +28,14 @@ class ResearchState(TypedDict, total=False):
         report: Structured research report
         errors: List of errors encountered during processing
         metadata: Additional metadata about the workflow execution
+        _timing_planner: Execution time for planner node (ms)
+        _timing_research: Execution time for research node (ms)
+        _timing_search: Execution time for search node (ms)
+        _timing_report: Execution time for report node (ms)
+        _planner_copy_overhead_ms: State copy overhead for planner (ms)
+        _research_copy_overhead_ms: State copy overhead for research (ms)
+        _search_copy_overhead_ms: State copy overhead for search (ms)
+        _report_copy_overhead_ms: State copy overhead for report (ms)
     """
 
     user_query: str
@@ -42,6 +50,14 @@ class ResearchState(TypedDict, total=False):
     report: dict[str, Any]
     errors: list[dict[str, Any]]
     metadata: dict[str, Any]
+    _timing_planner: float
+    _timing_research: float
+    _timing_search: float
+    _timing_report: float
+    _planner_copy_overhead_ms: float
+    _research_copy_overhead_ms: float
+    _search_copy_overhead_ms: float
+    _report_copy_overhead_ms: float
 
 
 def create_initial_state(

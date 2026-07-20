@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 import httpx
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 from backend.core.exceptions import ExternalServiceException
 from backend.core.interfaces import SearchProvider
@@ -40,7 +40,6 @@ class DuckDuckGoProvider(SearchProvider):
         self.http_client = httpx.AsyncClient(
             timeout=timeout,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-            http2=True,  # Enable HTTP/2 for better performance
         )
         logger.info(
             f"DuckDuckGo provider initialized",

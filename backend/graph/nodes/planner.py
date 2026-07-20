@@ -43,32 +43,15 @@ async def planner_node(
         },
     )
 
-    # Create planning prompt
-    prompt = f"""You are a research planning assistant. Analyze the user's query and create a structured research plan.
-
-User Query: {user_query}
-
-Your task is to:
-1. Understand the research goal
-2. Break it down into specific, actionable tasks
-3. Output a JSON response with this exact structure:
-{{
-  "goal": "Clear statement of the research objective",
-  "tasks": [
-    "Specific task 1",
-    "Specific task 2",
-    "Specific task 3"
-  ]
-}}
-
-Be specific and practical. Focus on what information needs to be gathered."""
+    # Create planning prompt (optimized - output is ignored, minimal prompt)
+    prompt = f"Query: {user_query}\n\nCreate a research plan with goal and tasks. JSON format: {{\"goal\": \"...\", \"tasks\": [\"...\"]}}"
 
     try:
         # Call LLM provider to generate research plan
         response = await llm_provider.generate(
             prompt=prompt,
-            temperature=0.3,  # Lower temperature for more structured output
-            max_tokens=256,  # Optimized for planning tasks
+            temperature=0.3,
+            max_tokens=64,  # Reduced - output is ignored
             request_id=request_id,
             function_name="planner",
         )

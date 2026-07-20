@@ -69,8 +69,19 @@ def build_workflow(
         copy_duration = time.time() - copy_start
         
         execution_time = (time.time() - wrapper_start) * 1000
+        # Ensure timing is preserved even if node returned a copy
         result["_timing_planner"] = execution_time
         result["_planner_copy_overhead_ms"] = copy_duration * 1000
+        # Log wrapper timing for debugging
+        logger.info(
+            f"Planner wrapper completed - Duration: {execution_time:.0f}ms",
+            extra={
+                "request_id": state.get("request_id"),
+                "wrapper_execution_time_ms": execution_time,
+                "node_execution_time_ms": node_duration * 1000,
+                "copy_overhead_ms": copy_duration * 1000,
+            },
+        )
         return result
 
     # Create wrapper for research node with dependency injection and timing
@@ -87,8 +98,10 @@ def build_workflow(
         copy_duration = time.time() - copy_start
         
         execution_time = (time.time() - wrapper_start) * 1000
+        # Preserve timing from previous nodes and add current timing
         result["_timing_planner"] = state.get("_timing_planner", 0)
         result["_timing_research"] = execution_time
+        result["_planner_copy_overhead_ms"] = state.get("_planner_copy_overhead_ms", 0)
         result["_research_copy_overhead_ms"] = copy_duration * 1000
         return result
 
@@ -106,9 +119,12 @@ def build_workflow(
         copy_duration = time.time() - copy_start
         
         execution_time = (time.time() - wrapper_start) * 1000
+        # Preserve timing from previous nodes and add current timing
         result["_timing_planner"] = state.get("_timing_planner", 0)
         result["_timing_research"] = state.get("_timing_research", 0)
         result["_timing_search"] = execution_time
+        result["_planner_copy_overhead_ms"] = state.get("_planner_copy_overhead_ms", 0)
+        result["_research_copy_overhead_ms"] = state.get("_research_copy_overhead_ms", 0)
         result["_search_copy_overhead_ms"] = copy_duration * 1000
         return result
 
@@ -126,10 +142,14 @@ def build_workflow(
         copy_duration = time.time() - copy_start
         
         execution_time = (time.time() - wrapper_start) * 1000
+        # Preserve timing from previous nodes and add current timing
         result["_timing_planner"] = state.get("_timing_planner", 0)
         result["_timing_research"] = state.get("_timing_research", 0)
         result["_timing_search"] = state.get("_timing_search", 0)
         result["_timing_report"] = execution_time
+        result["_planner_copy_overhead_ms"] = state.get("_planner_copy_overhead_ms", 0)
+        result["_research_copy_overhead_ms"] = state.get("_research_copy_overhead_ms", 0)
+        result["_search_copy_overhead_ms"] = state.get("_search_copy_overhead_ms", 0)
         result["_report_copy_overhead_ms"] = copy_duration * 1000
         return result
 
