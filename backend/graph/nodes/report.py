@@ -30,9 +30,10 @@ async def report_node(
     Returns:
         Updated state with report and final_answer
     """
+    start_time = time.time()
+    
     request_id = state.get("request_id")
     user_query = state.get("user_query", "")
-    research_plan = state.get("metadata", {}).get("research_plan", {})
     search_results = state.get("search_results", [])
     research_papers = state.get("research_papers", [])
 
@@ -46,64 +47,89 @@ async def report_node(
         },
     )
 
-    start_time = time.time()
-
     # Build the prompt
     prompt_parts = [
-        "You are a research assistant. Your task is to synthesize information from multiple sources to answer the user's question.",
+        "You are a fast research report generator.",
+        "Do not explain your reasoning.",
+        "Do not analyze your process.",
+        "Only output the final answer.",
+        "Start directly with the report.",
         "",
         f"User Question: {user_query}",
         "",
     ]
 
-    # Add research plan if available
-    if research_plan:
-        prompt_parts.append(f"Research Plan: {research_plan.get('goal', 'N/A')}")
-        prompt_parts.append("Tasks:")
-        for task in research_plan.get("tasks", []):
-            prompt_parts.append(f"  - {task}")
-        prompt_parts.append("")
 
-    # Add web search results
+    # Add web search results (deduplicated and limited)
     if search_results:
+        # Deduplicate by URL
+        seen_urls = set()
+        unique_results = []
+        for result in search_results:
+            url = result.get('url', '')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_results.append(result)
+        
         prompt_parts.append("Web Search Results:")
-        for i, result in enumerate(search_results[:5], 1):
+        for i, result in enumerate(unique_results[:2], 1):  # Reduced from 3 to 2
             prompt_parts.append(f"{i}. {result.get('title', 'N/A')}")
-            prompt_parts.append(f"   URL: {result.get('url', 'N/A')}")
-            prompt_parts.append(f"   Snippet: {result.get('snippet', 'N/A')[:200]}...")
+            prompt_parts.append(f"   Snippet: {result.get('snippet', 'N/A')[:80]}...")  # Reduced from 100 to 80
         prompt_parts.append("")
 
-    # Add research papers
+    # Add research papers (limited)
     if research_papers:
         prompt_parts.append("Academic Papers:")
-        for i, paper in enumerate(research_papers[:3], 1):
+        for i, paper in enumerate(research_papers[:1], 1):  # Reduced from 2 to 1
             prompt_parts.append(f"{i}. {paper.get('title', 'N/A')}")
-            prompt_parts.append(f"   Authors: {', '.join(paper.get('authors', []))}")
-            prompt_parts.append(f"   Published: {paper.get('published', 'N/A')}")
-            prompt_parts.append(f"   Abstract: {paper.get('abstract', 'N/A')[:300]}...")
+            prompt_parts.append(f"   Abstract: {paper.get('abstract', 'N/A')[:120]}...")  # Reduced from 150 to 120
         prompt_parts.append("")
 
     prompt_parts.extend([
-        "Instructions:",
-        "- Answer the user's question based on the provided information",
-        "- Combine insights from both web search and academic papers",
-        "- When citing information from research papers, explicitly mention 'According to research papers...' or 'Academic research indicates...'",
-        "- Produce a clear, well-structured Markdown report",
-        "- If information is insufficient, acknowledge limitations",
-        "- Be thorough but concise",
+        "Write a concise research report.",
+        "",
+        "Use only the provided sources.",
+        "",
+        "Structure:",
+        "- Summary",
+        "- Key findings",
+        "- Important evidence",
+        "- Sources",
+        "",
+        "Rules:",
+        "- Do not show reasoning steps.",
+        "- Do not explain your thought process.",
+        "- Only provide the final answer.",
         "",
         "Generate the report now:"
     ])
 
     prompt = "\n".join(prompt_parts)
 
+    # Log detailed prompt construction for debugging
+    logger.info(
+        "Report prompt construction details",
+        extra={
+            "request_id": request_id,
+            "system_instructions_chars": len("\n".join(prompt_parts[:6])),
+            "user_query_chars": len(user_query),
+            "num_web_results_in_prompt": len([p for p in prompt_parts if "Web Search Results" in p or p.startswith(("1.", "2."))]),
+            "num_papers_in_prompt": len([p for p in prompt_parts if "Academic Papers" in p or p.startswith(("1.", "2."))]),
+            "structure_rules_chars": len("\n".join(prompt_parts[-9:])),
+            "total_prompt_chars": len(prompt),
+            "total_prompt_words": len(prompt.split()),
+            "max_tokens": 512,
+        },
+    )
+
     try:
         # Generate report using LLM provider
         report = await llm_provider.generate(
             prompt=prompt,
             temperature=0.5,  # Moderate temperature for balanced creativity
-            max_tokens=3000,
+            max_tokens=512,  # Further optimized for faster report generation
             request_id=request_id,
+            function_name="report",
         )
 
         execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
@@ -113,11 +139,16 @@ async def report_node(
             extra={
                 "request_id": request_id,
                 "execution_time_ms": execution_time,
+                "prompt_length": len(prompt),
                 "report_length": len(report),
+                "sources_received": len(search_results),
+                "sources_used_in_prompt": len(unique_results[:2]) if search_results else 0,
+                "papers_received": len(research_papers),
+                "papers_used_in_prompt": len(research_papers[:1]) if research_papers else 0,
             },
         )
 
-        # Update state with results
+        # Update state with results (avoid duplicate storage)
         updated_state = state.copy()
         updated_state["report"] = {
             "content": report,
@@ -127,7 +158,8 @@ async def report_node(
             },
             "generated_at": time.time(),
         }
-        updated_state["final_answer"] = report
+        # Reference the same content instead of duplicating
+        updated_state["final_answer"] = updated_state["report"]["content"]
         updated_state["intermediate_steps"] = state.get("intermediate_steps", [])
         updated_state["intermediate_steps"].append({
             "node": "report",
@@ -175,7 +207,7 @@ The automated report generation encountered an error. Please review the raw sear
 Error: {str(e)}
 """
 
-        # Update state with fallback
+        # Update state with fallback (avoid duplicate storage)
         updated_state = state.copy()
         updated_state["report"] = {
             "content": fallback_report,
@@ -186,7 +218,8 @@ Error: {str(e)}
             "generated_at": time.time(),
             "fallback": True,
         }
-        updated_state["final_answer"] = fallback_report
+        # Reference the same content instead of duplicating
+        updated_state["final_answer"] = updated_state["report"]["content"]
         updated_state["errors"] = state.get("errors", [])
         updated_state["errors"].append({
             "node": "report",

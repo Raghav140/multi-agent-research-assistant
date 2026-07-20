@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.research import research_router
 from backend.api.routes import router
 from backend.config.config import settings
+from backend.config import dependencies  # Initialize singleton providers
 from backend.core.error_handlers import (
     agent_exception_handler,
     authentication_exception_handler,
@@ -76,6 +78,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 # Include routers
 app.include_router(router, prefix="/api/v1")
+app.include_router(research_router)
 
 
 @app.get("/")

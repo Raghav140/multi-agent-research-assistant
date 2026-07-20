@@ -4,6 +4,7 @@ This module implements a provider for searching and retrieving academic
 papers from the arXiv database using the official arXiv library.
 """
 
+import asyncio
 import time
 from typing import Any
 
@@ -23,6 +24,7 @@ class ArxivProvider:
 
     Attributes:
         timeout: Request timeout in seconds
+        client: Reusable arXiv client
     """
 
     def __init__(self, timeout: int = 30) -> None:
@@ -32,6 +34,8 @@ class ArxivProvider:
             timeout: Request timeout in seconds
         """
         self.timeout = timeout
+        # Create reusable arXiv client
+        self.client = arxiv.Client()
         logger.info(
             f"arXiv provider initialized",
             extra={"timeout": timeout},
@@ -69,25 +73,31 @@ class ArxivProvider:
         )
 
         try:
-            # Create arXiv client and search
+            # Create arXiv search
             search = arxiv.Search(
                 query=query,
                 max_results=max_results,
                 sort_by=arxiv.SortCriterion.Relevance,
             )
 
-            # Fetch results
+            # Fetch results with timeout using reusable client
             results = []
-            for result in arxiv.Client().results(search):
-                paper = {
-                    "title": result.title,
-                    "authors": [author.name for author in result.authors],
-                    "abstract": result.summary,
-                    "published": result.published.isoformat() if result.published else None,
-                    "pdf_url": result.pdf_url,
-                    "entry_id": result.entry_id,
-                }
-                results.append(paper)
+            search_start = time.time()
+            
+            async def fetch_results():
+                for result in self.client.results(search):
+                    paper = {
+                        "title": result.title,
+                        "authors": [author.name for author in result.authors],
+                        "abstract": result.summary,
+                        "published": result.published.isoformat() if result.published else None,
+                        "pdf_url": result.pdf_url,
+                        "entry_id": result.entry_id,
+                    }
+                    results.append(paper)
+            
+            await asyncio.wait_for(fetch_results(), timeout=self.timeout)
+            search_duration = time.time() - search_start
 
             execution_time = time.time() - start_time
 
@@ -96,6 +106,8 @@ class ArxivProvider:
                 extra={
                     "query": query,
                     "execution_time": execution_time,
+                    "search_duration": search_duration,
+                    "parsing_duration": execution_time - search_duration,
                     "num_results": len(results),
                     "request_id": request_id,
                 },
@@ -112,6 +124,22 @@ class ArxivProvider:
                 )
 
             return results
+
+        except asyncio.TimeoutError:
+            execution_time = time.time() - start_time
+            logger.error(
+                f"arXiv search timeout after {execution_time:.2f}s",
+                extra={
+                    "query": query,
+                    "execution_time": execution_time,
+                    "request_id": request_id,
+                    "timeout": self.timeout,
+                },
+            )
+            raise ExternalServiceException(
+                message=f"arXiv search timeout after {self.timeout}s",
+                details={"error": "TimeoutError", "query": query},
+            )
 
         except arxiv.ArxivError as e:
             execution_time = time.time() - start_time

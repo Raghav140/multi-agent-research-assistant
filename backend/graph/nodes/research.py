@@ -59,8 +59,16 @@ async def research_node(
     try:
         web_search_task = search_provider.search(
             query=search_query,
-            num_results=5,
+            num_results=2,  # Reduced from 5 - report only uses 2 results
             request_id=request_id,
+        )
+        logger.info(
+            "Web search task created",
+            extra={
+                "request_id": request_id,
+                "query": search_query,
+                "num_results_requested": 2,
+            },
         )
     except Exception as e:
         logger.error(
@@ -75,8 +83,16 @@ async def research_node(
     try:
         arxiv_search_task = arxiv_provider.search(
             query=search_query,
-            max_results=3,
+            max_results=1,  # Reduced from 3 - report only uses 1 paper
             request_id=request_id,
+        )
+        logger.info(
+            "arXiv search task created",
+            extra={
+                "request_id": request_id,
+                "query": search_query,
+                "max_results_requested": 1,
+            },
         )
     except Exception as e:
         logger.error(
@@ -144,13 +160,15 @@ async def research_node(
     execution_time = time.time() - start_time
 
     logger.info(
-        f"Research node completed",
+        f"Research node completed - Duration: {execution_time:.0f}ms",
         extra={
             "request_id": request_id,
-            "execution_time": execution_time,
-            "num_web_results": len(search_results),
-            "num_papers": len(research_papers),
+            "execution_time_ms": execution_time * 1000,
+            "num_web_results_received": len(search_results),
+            "num_papers_received": len(research_papers),
             "num_errors": len(errors),
+            "web_search_percent": 0,  # Will be calculated after total known
+            "arxiv_search_percent": 0,  # Will be calculated after total known
         },
     )
 

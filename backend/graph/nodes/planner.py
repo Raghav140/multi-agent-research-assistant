@@ -4,6 +4,7 @@ This module implements the planner node that analyzes the user query
 and creates a structured research plan using the LLM provider.
 """
 
+import time
 from typing import Any
 
 from backend.core.interfaces import LLMProvider
@@ -29,6 +30,8 @@ async def planner_node(
     Returns:
         Updated state with research plan in metadata
     """
+    start_time = time.time()
+    
     user_query = state.get("user_query", "")
     request_id = state.get("request_id")
 
@@ -65,8 +68,9 @@ Be specific and practical. Focus on what information needs to be gathered."""
         response = await llm_provider.generate(
             prompt=prompt,
             temperature=0.3,  # Lower temperature for more structured output
-            max_tokens=1000,
+            max_tokens=256,  # Optimized for planning tasks
             request_id=request_id,
+            function_name="planner",
         )
 
         # Parse the response (in production, add proper JSON parsing with error handling)
@@ -94,24 +98,30 @@ Be specific and practical. Focus on what information needs to be gathered."""
             "plan": research_plan,
         })
 
+        execution_time = time.time() - start_time
+
         logger.info(
-            f"Planner node completed successfully",
+            f"Planner node completed successfully - Duration: {execution_time:.0f}ms",
             extra={
                 "request_id": request_id,
                 "plan_goal": research_plan["goal"],
                 "num_tasks": len(research_plan["tasks"]),
+                "execution_time_ms": execution_time * 1000,
             },
         )
 
         return updated_state
 
     except Exception as e:
+        execution_time = time.time() - start_time
+
         logger.error(
             f"Planner node failed: {str(e)}",
             extra={
                 "request_id": request_id,
                 "error": str(e),
                 "error_type": type(e).__name__,
+                "execution_time_ms": execution_time * 1000,
             },
         )
 

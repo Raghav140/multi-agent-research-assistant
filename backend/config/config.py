@@ -220,12 +220,33 @@ class LLMSettings(BaseSettings):
         le=128000,
         description="Maximum tokens to generate",
     )
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENAI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+
+class OllamaSettings(BaseSettings):
+    """Ollama configuration settings.
+
+    Attributes:
+        ollama_host: Ollama server host URL
+        ollama_model: Ollama model name
+        ollama_timeout: Request timeout in seconds
+        ollama_disable_reasoning: Disable reasoning/thinking mode for models like Qwen3
+        ollama_stream: Enable streaming responses (disabled by default for Qwen3)
+    """
+
     ollama_host: str = Field(
         default="http://localhost:11434",
         description="Ollama server host URL",
     )
     ollama_model: str = Field(
-        default="qwen3:8b",
+        default="qwen3:4b",
         description="Ollama model name",
     )
     ollama_timeout: int = Field(
@@ -234,9 +255,17 @@ class LLMSettings(BaseSettings):
         le=600,
         description="Request timeout in seconds",
     )
+    ollama_disable_reasoning: bool = Field(
+        default=True,
+        description="Disable reasoning/thinking mode for models like Qwen3",
+    )
+    ollama_stream: bool = Field(
+        default=False,
+        description="Enable streaming responses (disabled by default for Qwen3)",
+    )
 
     model_config = SettingsConfigDict(
-        env_prefix="OPENAI_",
+        env_prefix="OLLAMA_",
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
@@ -348,6 +377,7 @@ class Settings:
         database: DatabaseSettings | None = None,
         redis: RedisSettings | None = None,
         llm: LLMSettings | None = None,
+        ollama: OllamaSettings | None = None,
         rag: RAGSettings | None = None,
         security: SecuritySettings | None = None,
     ) -> None:
@@ -358,6 +388,7 @@ class Settings:
         self.database = database or DatabaseSettings()
         self.redis = redis or RedisSettings()
         self.llm = llm or LLMSettings()
+        self.ollama = ollama or OllamaSettings()
         self.rag = rag or RAGSettings()
         self.security = security or SecuritySettings()
 
@@ -455,17 +486,27 @@ class Settings:
     @property
     def ollama_host(self) -> str:
         """Get Ollama host."""
-        return self.llm.ollama_host
+        return self.ollama.ollama_host
 
     @property
     def ollama_model(self) -> str:
         """Get Ollama model."""
-        return self.llm.ollama_model
+        return self.ollama.ollama_model
 
     @property
     def ollama_timeout(self) -> int:
         """Get Ollama timeout."""
-        return self.llm.ollama_timeout
+        return self.ollama.ollama_timeout
+
+    @property
+    def ollama_disable_reasoning(self) -> bool:
+        """Get Ollama disable reasoning setting."""
+        return self.ollama.ollama_disable_reasoning
+
+    @property
+    def ollama_stream(self) -> bool:
+        """Get Ollama stream setting."""
+        return self.ollama.ollama_stream
 
     @property
     def chunk_size(self) -> int:

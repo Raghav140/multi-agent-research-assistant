@@ -4,6 +4,7 @@ This module implements the SearchProvider interface using the DuckDuckGo
 search library for web search functionality.
 """
 
+import asyncio
 import time
 from typing import Any
 
@@ -25,6 +26,7 @@ class DuckDuckGoProvider(SearchProvider):
 
     Attributes:
         timeout: Request timeout in seconds
+        http_client: Reusable HTTP client with connection pooling
     """
 
     def __init__(self, timeout: int = 30) -> None:
@@ -34,6 +36,12 @@ class DuckDuckGoProvider(SearchProvider):
             timeout: Request timeout in seconds
         """
         self.timeout = timeout
+        # Create reusable HTTP client with connection pooling and keep-alive
+        self.http_client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            http2=True,  # Enable HTTP/2 for better performance
+        )
         logger.info(
             f"DuckDuckGo provider initialized",
             extra={"timeout": timeout},
@@ -71,9 +79,14 @@ class DuckDuckGoProvider(SearchProvider):
         )
 
         try:
-            # Perform search using DuckDuckGo
+            # Perform search using DuckDuckGo with timeout
             ddgs = DDGS()
-            results = list(ddgs.text(query, max_results=num_results))
+            search_start = time.time()
+            results = await asyncio.wait_for(
+                asyncio.to_thread(list, ddgs.text(query, max_results=num_results)),
+                timeout=self.timeout,
+            )
+            search_duration = time.time() - search_start
 
             execution_time = time.time() - start_time
 
@@ -91,6 +104,8 @@ class DuckDuckGoProvider(SearchProvider):
                 extra={
                     "query": query,
                     "execution_time": execution_time,
+                    "search_duration": search_duration,
+                    "parsing_duration": execution_time - search_duration,
                     "num_results": len(formatted_results),
                     "request_id": request_id,
                 },
@@ -107,6 +122,22 @@ class DuckDuckGoProvider(SearchProvider):
                 )
 
             return formatted_results
+
+        except asyncio.TimeoutError:
+            execution_time = time.time() - start_time
+            logger.error(
+                f"DuckDuckGo search timeout after {execution_time:.2f}s",
+                extra={
+                    "query": query,
+                    "execution_time": execution_time,
+                    "request_id": request_id,
+                    "timeout": self.timeout,
+                },
+            )
+            raise ExternalServiceException(
+                message=f"DuckDuckGo search timeout after {self.timeout}s",
+                details={"error": "TimeoutError", "query": query},
+            )
 
         except httpx.TimeoutException as e:
             execution_time = time.time() - start_time
@@ -181,11 +212,10 @@ class DuckDuckGoProvider(SearchProvider):
         )
 
         try:
-            # Use httpx to fetch content
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                content = response.text
+            # Use reusable HTTP client to fetch content
+            response = await self.http_client.get(url)
+            response.raise_for_status()
+            content = response.text
 
             execution_time = time.time() - start_time
 
