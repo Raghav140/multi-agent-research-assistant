@@ -11,11 +11,13 @@ from backend.config.dependencies import (
     get_arxiv_provider,
     get_llm_provider,
     get_search_provider,
+    get_wikipedia_provider,
 )
 from backend.core.interfaces import LLMProvider, SearchProvider
 from backend.graph.state import create_initial_state
 from backend.graph.workflow import build_workflow
 from backend.providers.papers.arxiv_provider import ArxivProvider
+from backend.providers.search.wikipedia_provider import WikipediaProvider
 from backend.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -47,6 +49,7 @@ async def research(
     llm_provider: LLMProvider = Depends(get_llm_provider),
     search_provider: SearchProvider = Depends(get_search_provider),
     arxiv_provider: ArxivProvider = Depends(get_arxiv_provider),
+    wikipedia_provider: WikipediaProvider = Depends(get_wikipedia_provider),
 ) -> ResearchResponse:
     """Execute research workflow using LangGraph.
 
@@ -89,7 +92,7 @@ async def research(
 
     # Build workflow with dependency injection
     workflow_build_start = time.time()
-    workflow = build_workflow(llm_provider, search_provider, arxiv_provider)
+    workflow = build_workflow(llm_provider, search_provider, arxiv_provider, wikipedia_provider)
     workflow_build_time = (time.time() - workflow_build_start) * 1000
 
     logger.info(

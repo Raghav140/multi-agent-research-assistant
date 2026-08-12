@@ -66,9 +66,12 @@ class ArxivProvider:
         logger.info(
             f"arXiv search request",
             extra={
+                "provider": "arXiv",
                 "query": query,
                 "max_results": max_results,
                 "request_id": request_id,
+                "url": "export.arxiv.org (via arxiv library)",
+                "timeout": self.timeout,
             },
         )
 
@@ -83,7 +86,17 @@ class ArxivProvider:
             # Fetch results with timeout using reusable client
             results = []
             search_start = time.time()
-            
+
+            logger.info(
+                f"Executing arXiv search",
+                extra={
+                    "query": query,
+                    "max_results": max_results,
+                    "sort_by": "Relevance",
+                    "request_id": request_id,
+                },
+            )
+
             async def fetch_results():
                 for result in self.client.results(search):
                     paper = {
@@ -95,21 +108,30 @@ class ArxivProvider:
                         "entry_id": result.entry_id,
                     }
                     results.append(paper)
-            
+
             await asyncio.wait_for(fetch_results(), timeout=self.timeout)
             search_duration = time.time() - search_start
 
             execution_time = time.time() - start_time
 
+            # Log paper titles for debugging
+            paper_titles = [r.get("title", "")[:50] for r in results]
+            paper_ids = [r.get("entry_id", "")[:30] for r in results]
+
             logger.info(
                 f"arXiv search completed",
                 extra={
+                    "provider": "arXiv",
                     "query": query,
                     "execution_time": execution_time,
                     "search_duration": search_duration,
                     "parsing_duration": execution_time - search_duration,
                     "num_results": len(results),
+                    "paper_titles": paper_titles,
+                    "paper_ids": paper_ids,
                     "request_id": request_id,
+                    "status_code": "N/A (arxiv library)",
+                    "response_size": len(str(results)),
                 },
             )
 
@@ -118,8 +140,10 @@ class ArxivProvider:
                 logger.warning(
                     f"arXiv search returned no results",
                     extra={
+                        "provider": "arXiv",
                         "query": query,
                         "request_id": request_id,
+                        "parsing_status": "empty",
                     },
                 )
 
@@ -130,10 +154,13 @@ class ArxivProvider:
             logger.error(
                 f"arXiv search timeout after {execution_time:.2f}s",
                 extra={
+                    "provider": "arXiv",
                     "query": query,
                     "execution_time": execution_time,
                     "request_id": request_id,
                     "timeout": self.timeout,
+                    "error_type": "TimeoutError",
+                    "parsing_status": "timeout",
                 },
             )
             raise ExternalServiceException(
@@ -146,10 +173,12 @@ class ArxivProvider:
             logger.error(
                 f"arXiv API error: {str(e)}",
                 extra={
+                    "provider": "arXiv",
                     "query": query,
                     "execution_time": execution_time,
                     "request_id": request_id,
                     "error_type": "ArxivError",
+                    "parsing_status": "api_error",
                 },
             )
             raise ExternalServiceException(

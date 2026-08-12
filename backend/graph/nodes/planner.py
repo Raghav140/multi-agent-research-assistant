@@ -31,7 +31,7 @@ async def planner_node(
         Updated state with research plan in metadata
     """
     start_time = time.time()
-    
+
     user_query = state.get("user_query", "")
     request_id = state.get("request_id")
 
@@ -131,8 +131,8 @@ async def planner_node(
             "tasks": [
                 "Gather background information",
                 "Search for relevant research",
-                "Analyze findings",
-                "Prepare report",
+                 "Analyze findings",
+                 "Prepare report",
             ],
             "fallback": True,
         }

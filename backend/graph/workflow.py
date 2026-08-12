@@ -14,6 +14,7 @@ from backend.core.interfaces import LLMProvider, SearchProvider
 from backend.graph.nodes import planner_node, research_node, report_node
 from backend.graph.state import ResearchState
 from backend.providers.papers.arxiv_provider import ArxivProvider
+from backend.providers.search.wikipedia_provider import WikipediaProvider
 from backend.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -40,6 +41,7 @@ def build_workflow(
     llm_provider: LLMProvider,
     search_provider: SearchProvider,
     arxiv_provider: ArxivProvider,
+    wikipedia_provider: WikipediaProvider = None,
 ) -> StateGraph:
     """Build and compile the LangGraph workflow.
 
@@ -61,13 +63,13 @@ def build_workflow(
         wrapper_start = time.time()
         result = await planner_node(state, llm_provider)
         node_duration = time.time() - wrapper_start
-        
+
         # Track state copying overhead
         copy_start = time.time()
         if result is state:
             result = state.copy()
         copy_duration = time.time() - copy_start
-        
+
         execution_time = (time.time() - wrapper_start) * 1000
         # Ensure timing is preserved even if node returned a copy
         result["_timing_planner"] = execution_time
@@ -88,15 +90,15 @@ def build_workflow(
     async def research_wrapper(state: ResearchState) -> ResearchState:
         """Wrapper for research node with dependency injection."""
         wrapper_start = time.time()
-        result = await research_node(state, search_provider, arxiv_provider)
+        result = await research_node(state, search_provider, arxiv_provider, wikipedia_provider)
         node_duration = time.time() - wrapper_start
-        
+
         # Track state copying overhead
         copy_start = time.time()
         if result is state:
             result = state.copy()
         copy_duration = time.time() - copy_start
-        
+
         execution_time = (time.time() - wrapper_start) * 1000
         # Preserve timing from previous nodes and add current timing
         result["_timing_planner"] = state.get("_timing_planner", 0)
@@ -111,13 +113,13 @@ def build_workflow(
         wrapper_start = time.time()
         result = await search_node(state)
         node_duration = time.time() - wrapper_start
-        
+
         # Track state copying overhead
         copy_start = time.time()
         if result is state:
             result = state.copy()
         copy_duration = time.time() - copy_start
-        
+
         execution_time = (time.time() - wrapper_start) * 1000
         # Preserve timing from previous nodes and add current timing
         result["_timing_planner"] = state.get("_timing_planner", 0)
@@ -134,13 +136,13 @@ def build_workflow(
         wrapper_start = time.time()
         result = await report_node(state, llm_provider)
         node_duration = time.time() - wrapper_start
-        
+
         # Track state copying overhead
         copy_start = time.time()
         if result is state:
             result = state.copy()
         copy_duration = time.time() - copy_start
-        
+
         execution_time = (time.time() - wrapper_start) * 1000
         # Preserve timing from previous nodes and add current timing
         result["_timing_planner"] = state.get("_timing_planner", 0)

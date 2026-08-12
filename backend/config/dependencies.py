@@ -10,11 +10,13 @@ from backend.core.interfaces import LLMProvider, SearchProvider
 from backend.providers.llm.ollama_provider import OllamaProvider
 from backend.providers.papers.arxiv_provider import ArxivProvider
 from backend.providers.search.duckduckgo_provider import DuckDuckGoProvider
+from backend.providers.search.wikipedia_provider import WikipediaProvider
 
 # Singleton provider instances - initialized once at module import
 _llm_provider: LLMProvider | None = None
 _search_provider: SearchProvider | None = None
 _arxiv_provider: ArxivProvider | None = None
+_wikipedia_provider: WikipediaProvider | None = None
 
 
 def get_llm_provider() -> LLMProvider:
@@ -51,6 +53,18 @@ def get_arxiv_provider() -> ArxivProvider:
     if _arxiv_provider is None:
         _arxiv_provider = ArxivProvider()
     return _arxiv_provider
+
+
+def get_wikipedia_provider() -> WikipediaProvider:
+    """Get singleton Wikipedia provider instance.
+
+    Returns:
+        Wikipedia provider instance (WikipediaProvider)
+    """
+    global _wikipedia_provider
+    if _wikipedia_provider is None:
+        _wikipedia_provider = WikipediaProvider()
+    return _wikipedia_provider
 
 
 async def get_db() -> AsyncGenerator:

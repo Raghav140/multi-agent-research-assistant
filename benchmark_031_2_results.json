@@ -1,0 +1,388 @@
+{
+  "benchmark_info": {
+    "task": "TASK-031.2",
+    "timestamp": "2026-08-10T21:01:12.499626",
+    "total_queries": 10,
+    "total_benchmark_time": 57.331947565078735
+  },
+  "summary": {
+    "successful_queries": 10,
+    "failed_queries": 0,
+    "success_rate": 1.0,
+    "avg_execution_time": 5.731398606300354,
+    "max_execution_time": 8.292239904403687,
+    "min_execution_time": 4.31699538230896
+  },
+  "provider_statistics": {
+    "duckduckgo": {
+      "successes": 10,
+      "failures": 0,
+      "avg_time": 3.0192521095275877,
+      "total_results": 50
+    },
+    "wikipedia": {
+      "successes": 10,
+      "failures": 0,
+      "avg_time": 0.6853390455245971,
+      "total_results": 50
+    },
+    "arxiv": {
+      "successes": 10,
+      "failures": 0,
+      "avg_time": 2.025217890739441,
+      "total_results": 50
+    }
+  },
+  "individual_results": [
+    {
+      "query": "What is artificial intelligence?",
+      "query_type": "definition",
+      "start_time": 1786375815.1676784,
+      "total_execution_time": 4.59384560585022,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 1.750260353088379,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.8863210678100586,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.956789255142212,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "What is machine learning?",
+      "query_type": "definition",
+      "start_time": 1786375819.761524,
+      "total_execution_time": 7.0683910846710205,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 3.8752169609069824,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 1.1591873168945312,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 2.033986806869507,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "What is Python?",
+      "query_type": "definition",
+      "start_time": 1786375826.829915,
+      "total_execution_time": 4.610123157501221,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 2.1849541664123535,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.5101685523986816,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.9150004386901855,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "LangGraph tutorial",
+      "query_type": "technical",
+      "start_time": 1786375831.4400382,
+      "total_execution_time": 4.37200665473938,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 2.482753276824951,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.5593640804290771,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.3281397819519043,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "FastAPI authentication tutorial",
+      "query_type": "technical",
+      "start_time": 1786375835.816581,
+      "total_execution_time": 8.292239904403687,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 5.692001819610596,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.674461841583252,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.9251914024353027,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "Explain quantum computing",
+      "query_type": "research",
+      "start_time": 1786375844.109851,
+      "total_execution_time": 4.31699538230896,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 1.8655011653900146,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.561107873916626,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.8868296146392822,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "Transformer architecture research",
+      "query_type": "research",
+      "start_time": 1786375848.4288957,
+      "total_execution_time": 7.629514217376709,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 2.3672752380371094,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.574019193649292,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 4.686593532562256,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "Retrieval augmented generation research",
+      "query_type": "research",
+      "start_time": 1786375856.0642483,
+      "total_execution_time": 4.818570375442505,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 2.392522096633911,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.6806409358978271,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.7431986331939697,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "FastAPI vs Flask",
+      "query_type": "technical",
+      "start_time": 1786375860.8855877,
+      "total_execution_time": 5.982357501983643,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 4.080990314483643,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.7487952709197998,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.1494736671447754,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    },
+    {
+      "query": "Current LangGraph documentation",
+      "query_type": "definition",
+      "start_time": 1786375866.8696837,
+      "total_execution_time": 5.629942178726196,
+      "providers": {
+        "duckduckgo": {
+          "success": true,
+          "execution_time": 3.5010457038879395,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "wikipedia": {
+          "success": true,
+          "execution_time": 0.49932432174682617,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        },
+        "arxiv": {
+          "success": true,
+          "execution_time": 1.6269757747650146,
+          "result_count": 5,
+          "error": null,
+          "error_type": null
+        }
+      },
+      "sources_found": 15,
+      "sources_accepted": 15,
+      "sources_rejected": 0,
+      "fallback_used": false,
+      "cache_hit": false,
+      "final_status": "success"
+    }
+  ]
+}

@@ -29,6 +29,7 @@ from backend.core.exceptions import (
 )
 from backend.core.middleware import RequestIDMiddleware
 from backend.utils.logging_config import setup_logging
+from backend.utils.embedding_manager import load_model_on_startup
 
 
 @asynccontextmanager
@@ -40,6 +41,8 @@ async def lifespan(app: FastAPI):
         log_format=settings.log_format,
         environment=settings.app_env,
     )
+    # Pre-load sentence-transformers model to avoid first-request latency
+    load_model_on_startup()
     yield
     # Shutdown
     pass
