@@ -14,7 +14,7 @@ class ProviderSelector:
     """Intelligent provider selector for adaptive retrieval.
 
     This class selects providers based on query type, historical performance,
-    and evidence requirements.
+    health status, circuit breaker state, and evidence requirements.
     """
 
     def __init__(self):
@@ -27,6 +27,22 @@ class ProviderSelector:
             "documentation": {"success_rate": 0.75, "avg_sources": 4, "avg_latency_ms": 2500},
         }
 
+        # Health status cache (updated externally)
+        self.provider_health: Dict[str, bool] = {
+            "duckduckgo": True,
+            "wikipedia": True,
+            "arxiv": True,
+            "documentation": True,
+        }
+
+        # Circuit breaker state cache (updated externally)
+        self.provider_circuit_state: Dict[str, str] = {
+            "duckduckgo": "closed",
+            "wikipedia": "closed",
+            "arxiv": "closed",
+            "documentation": "closed",
+        }
+
         logger.info("Provider selector initialized")
 
     def select_providers(
@@ -35,7 +51,7 @@ class ProviderSelector:
         query_type: str,
         historical_metrics: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Select providers based on query type and historical performance.
+        """Select providers based on query type, health, and historical performance.
 
         Args:
             query: Search query
@@ -52,14 +68,17 @@ class ProviderSelector:
         # Get base provider priority based on query type
         base_providers = self._get_base_providers(query_type)
 
+        # Filter out unhealthy and circuit-open providers
+        available_providers = self._filter_available_providers(base_providers)
+
         # Adjust priority based on historical performance
-        adjusted_providers = self._adjust_by_performance(base_providers)
+        adjusted_providers = self._adjust_by_performance(available_providers)
 
         # Select providers based on adjusted priority
         selected_providers = self._select_top_providers(adjusted_providers, max_providers=3)
 
         # Generate reason for selection
-        reason = self._generate_reason(query_type, selected_providers)
+        reason = self._generate_reason(query_type, selected_providers, base_providers)
 
         # Calculate selection confidence
         confidence = self._calculate_selection_confidence(selected_providers)
@@ -69,6 +88,8 @@ class ProviderSelector:
             extra={
                 "query": query,
                 "query_type": query_type,
+                "base_providers": base_providers,
+                "available_providers": available_providers,
                 "selected_providers": selected_providers,
                 "reason": reason,
                 "confidence": confidence,
@@ -99,6 +120,35 @@ class ProviderSelector:
         else:  # research
             # Research: arXiv first, then web, then documentation
             return ["arxiv", "duckduckgo", "documentation"]
+
+    def _filter_available_providers(self, providers: List[str]) -> List[str]:
+        """Filter out unhealthy and circuit-open providers.
+
+        Args:
+            providers: List of provider names
+
+        Returns:
+            List of available provider names
+        """
+        available = []
+        for provider in providers:
+            is_healthy = self.provider_health.get(provider, True)
+            circuit_state = self.provider_circuit_state.get(provider, "closed")
+
+            # Provider is available if healthy and circuit is not open
+            if is_healthy and circuit_state != "open":
+                available.append(provider)
+            else:
+                logger.debug(
+                    f"Provider filtered out",
+                    extra={
+                        "provider": provider,
+                        "is_healthy": is_healthy,
+                        "circuit_state": circuit_state,
+                    },
+                )
+
+        return available
 
     def _adjust_by_performance(self, providers: List[str]) -> List[tuple[str, float]]:
         """Adjust provider priority based on historical performance.
@@ -144,22 +194,31 @@ class ProviderSelector:
         """
         return [p[0] for p in adjusted_providers[:max_providers]]
 
-    def _generate_reason(self, query_type: str, providers: List[str]) -> str:
+    def _generate_reason(self, query_type: str, providers: List[str], base_providers: List[str]) -> str:
         """Generate reason for provider selection.
 
         Args:
             query_type: Query category
             providers: Selected providers
+            base_providers: Original provider priority list
 
         Returns:
             Reason string
         """
+        filtered_out = set(base_providers) - set(providers)
+
+        base_reason = ""
         if query_type == "definition":
-            return f"Definition query prioritizes authoritative sources: {', '.join(providers)}"
+            base_reason = "Definition query prioritizes authoritative sources"
         elif query_type == "technical":
-            return f"Technical query prioritizes official documentation: {', '.join(providers)}"
+            base_reason = "Technical query prioritizes official documentation"
         else:  # research
-            return f"Research query prioritizes academic sources: {', '.join(providers)}"
+            base_reason = "Research query prioritizes academic sources"
+
+        if filtered_out:
+            return f"{base_reason}. Selected: {', '.join(providers)}. Filtered out: {', '.join(filtered_out)}"
+        else:
+            return f"{base_reason}: {', '.join(providers)}"
 
     def _calculate_selection_confidence(self, providers: List[str]) -> float:
         """Calculate confidence in provider selection.
@@ -194,6 +253,32 @@ class ProviderSelector:
         for provider, perf in provider_performance.items():
             if provider in self.provider_performance:
                 self.provider_performance[provider].update(perf)
+
+    def update_provider_health(self, provider: str, is_healthy: bool) -> None:
+        """Update provider health status.
+
+        Args:
+            provider: Provider name
+            is_healthy: Whether the provider is healthy
+        """
+        self.provider_health[provider] = is_healthy
+        logger.debug(
+            f"Provider health updated",
+            extra={"provider": provider, "is_healthy": is_healthy},
+        )
+
+    def update_provider_circuit_state(self, provider: str, circuit_state: str) -> None:
+        """Update provider circuit breaker state.
+
+        Args:
+            provider: Provider name
+            circuit_state: Circuit state (closed, open, half_open)
+        """
+        self.provider_circuit_state[provider] = circuit_state
+        logger.debug(
+            f"Provider circuit state updated",
+            extra={"provider": provider, "circuit_state": circuit_state},
+        )
 
     def record_provider_result(
         self,

@@ -176,6 +176,9 @@ def detect_contradictions(
     - Conflicting numerical values
     - Negation phrases
 
+    Improved to use semantic similarity for better distinction between
+    actual contradictions and paraphrasing.
+
     Args:
         web_results: Web search results
         papers: Academic papers
@@ -208,13 +211,34 @@ def detect_contradictions(
                 words2 = set(text2.split())
                 overlap = len(words1 & words2) / max(len(words1), len(words2), 1)
 
-                if overlap > 0.2:  # 20% keyword overlap suggests similar topic
+                # Use semantic similarity if available to distinguish contradiction from paraphrasing
+                semantic_sim1 = source1.get("semantic_similarity", 0)
+                semantic_sim2 = source2.get("semantic_similarity", 0)
+                avg_semantic_sim = (semantic_sim1 + semantic_sim2) / 2
+
+                # Only flag as contradiction if:
+                # 1. They have keyword overlap (similar topic)
+                # 2. AND semantic similarity is NOT very high (not just paraphrasing)
+                # High semantic similarity (>0.7) suggests they're saying the same thing in different words
+                if overlap > 0.2 and avg_semantic_sim < 0.7:  # 20% keyword overlap, but not too semantically similar
                     contradictions.append({
                         "source1": source1.get("title", "Unknown")[:50],
                         "source2": source2.get("title", "Unknown")[:50],
                         "type": "potential_negation_conflict",
                         "overlap": overlap,
+                        "semantic_similarity": avg_semantic_sim,
                     })
+                    logger.info(
+                        "Potential contradiction detected",
+                        extra={
+                            "source1": source1.get("title", "Unknown")[:50],
+                            "source2": source2.get("title", "Unknown")[:50],
+                            "overlap": overlap,
+                            "semantic_similarity": avg_semantic_sim,
+                            "has_negation1": has_negation1,
+                            "has_negation2": has_negation2,
+                        },
+                    )
 
     return contradictions
 

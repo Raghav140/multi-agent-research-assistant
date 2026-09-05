@@ -1,9 +1,7 @@
-"""Planner node for LangGraph workflow.
+"""Planner node for LangGraph workflow."""
 
-This module implements the planner node that analyzes the user query
-and creates a structured research plan using the LLM provider.
-"""
-
+import json
+import re
 import time
 from typing import Any
 
@@ -14,62 +12,89 @@ from backend.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _fallback_plan(user_query: str, raw_response: str = "", fallback: bool = False) -> dict[str, Any]:
+    """Build a safe fallback research plan."""
+    return {
+        "goal": f"Research and analyze: {user_query}",
+        "tasks": [
+            user_query,
+            f"{user_query} overview",
+            "Search for relevant academic papers",
+            "Synthesize findings into a report",
+        ],
+        "query_type": "research",  # Default query type
+        "preferred_providers": ["duckduckgo", "arxiv"],  # Default providers
+        "research_depth": "moderate",  # Default research depth
+        "raw_response": raw_response,
+        "fallback": fallback,
+    }
+
+
+def _parse_research_plan(response: str, user_query: str) -> dict[str, Any]:
+    """Parse LLM JSON plan response with fallback."""
+    try:
+        match = re.search(r"\{.*\}", response, re.DOTALL)
+        if match:
+            data = json.loads(match.group())
+            goal = data.get("goal") or f"Research and analyze: {user_query}"
+            tasks = data.get("tasks") or []
+
+            # Extract optional fields with defaults
+            query_type = data.get("query_type", "research")
+            preferred_providers = data.get("preferred_providers", ["duckduckgo", "arxiv"])
+            research_depth = data.get("research_depth", "moderate")
+
+            # Validate and normalize fields
+            if isinstance(tasks, list) and tasks:
+                cleaned_tasks = [str(t).strip() for t in tasks if str(t).strip()]
+                if cleaned_tasks:
+                    return {
+                        "goal": str(goal).strip(),
+                        "tasks": cleaned_tasks[:5],
+                        "query_type": str(query_type).strip() if isinstance(query_type, str) else "research",
+                        "preferred_providers": list(preferred_providers) if isinstance(preferred_providers, list) else ["duckduckgo", "arxiv"],
+                        "research_depth": str(research_depth).strip() if isinstance(research_depth, str) else "moderate",
+                        "raw_response": response,
+                        "fallback": False,
+                    }
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(f"Failed to parse planner JSON: {e}")
+
+    return _fallback_plan(user_query, raw_response=response, fallback=True)
+
+
 async def planner_node(
     state: ResearchState,
     llm_provider: LLMProvider,
 ) -> ResearchState:
-    """Planner node - analyzes user query and creates research plan.
-
-    This node uses the LLM provider to analyze the user query and generate
-    a structured research plan with goals and tasks.
-
-    Args:
-        state: Current workflow state containing user_query
-        llm_provider: LLM provider instance (dependency injection)
-
-    Returns:
-        Updated state with research plan in metadata
-    """
+    """Planner node - analyzes user query and creates research plan."""
     start_time = time.time()
-
     user_query = state.get("user_query", "")
     request_id = state.get("request_id")
 
     logger.info(
-        f"Planner node started",
-        extra={
-            "request_id": request_id,
-            "user_query": user_query,
-        },
+        "Planner node started",
+        extra={"request_id": request_id, "user_query": user_query},
     )
 
-    # Create planning prompt (optimized - output is ignored, minimal prompt)
-    prompt = f"Query: {user_query}\n\nCreate a research plan with goal and tasks. JSON format: {{\"goal\": \"...\", \"tasks\": [\"...\"]}}"
+    prompt = (
+        f'Query: "{user_query}"\n\n'
+        'Return ONLY valid JSON: {"goal": "...", "tasks": ["search task 1", "search task 2"]}\n'
+        "Tasks should be specific searchable queries related to the user question."
+    )
 
     try:
-        # Call LLM provider to generate research plan
+        llm_start = time.time()
         response = await llm_provider.generate(
             prompt=prompt,
             temperature=0.3,
-            max_tokens=64,  # Reduced - output is ignored
+            max_tokens=256,
             request_id=request_id,
             function_name="planner",
         )
+        llm_ms = (time.time() - llm_start) * 1000
+        research_plan = _parse_research_plan(response, user_query)
 
-        # Parse the response (in production, add proper JSON parsing with error handling)
-        # For now, we'll store the raw response and structure it
-        research_plan = {
-            "goal": f"Research and analyze: {user_query}",
-            "tasks": [
-                "Gather background information on the topic",
-                "Search for relevant academic papers and research",
-                "Analyze findings and synthesize information",
-                "Prepare comprehensive report",
-            ],
-            "raw_response": response,
-        }
-
-        # Update state with research plan
         updated_state = state.copy()
         updated_state["metadata"] = state.get("metadata", {})
         updated_state["metadata"]["research_plan"] = research_plan
@@ -81,34 +106,24 @@ async def planner_node(
             "plan": research_plan,
         })
 
-        execution_time = time.time() - start_time
-
         logger.info(
-            f"Planner node completed successfully - Duration: {execution_time:.0f}ms",
+            "Planner node completed",
             extra={
                 "request_id": request_id,
                 "plan_goal": research_plan["goal"],
                 "num_tasks": len(research_plan["tasks"]),
-                "execution_time_ms": execution_time * 1000,
+                "used_fallback": research_plan.get("fallback", False),
+                "llm_time_ms": llm_ms,
+                "execution_time_ms": (time.time() - start_time) * 1000,
             },
         )
-
         return updated_state
 
     except Exception as e:
-        execution_time = time.time() - start_time
-
         logger.error(
-            f"Planner node failed: {str(e)}",
-            extra={
-                "request_id": request_id,
-                "error": str(e),
-                "error_type": type(e).__name__,
-                "execution_time_ms": execution_time * 1000,
-            },
+            f"Planner node failed: {e}",
+            extra={"request_id": request_id, "error_type": type(e).__name__},
         )
-
-        # Continue gracefully - append error to state and continue
         updated_state = state.copy()
         updated_state["errors"] = state.get("errors", [])
         updated_state["errors"].append({
@@ -123,18 +138,6 @@ async def planner_node(
             "status": "failed",
             "error": str(e),
         })
-
-        # Set a fallback plan
         updated_state["metadata"] = state.get("metadata", {})
-        updated_state["metadata"]["research_plan"] = {
-            "goal": f"Research and analyze: {user_query}",
-            "tasks": [
-                "Gather background information",
-                "Search for relevant research",
-                 "Analyze findings",
-                 "Prepare report",
-            ],
-            "fallback": True,
-        }
-
+        updated_state["metadata"]["research_plan"] = _fallback_plan(user_query, fallback=True)
         return updated_state

@@ -12,68 +12,62 @@ services:
     environment:
       - APP_NAME=multi-agent-research-assistant
       - APP_ENV=production
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/multi_agent_db
-      - REDIS_URL=redis://redis:6379/0
+      - APP_DEBUG=false
+      - RESEARCH_MEMORY_DB_PATH=/app/data/research_memory.db
+      - EVALUATION_METRICS_DB_PATH=/app/data/evaluation_metrics.db
+      # OLLAMA_HOST configured to use internal Ollama service
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
-    depends_on:
-      - db
-      - redis
     volumes:
-      - ./backend:/app/backend
-      - ./logs:/app/logs
+      # Persistent SQLite databases
+      - app_data:/app/data
+      # Persistent logs
+      - app_logs:/app/logs
     networks:
       - app-network
+    depends_on:
+      - ollama
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  # PostgreSQL Database
-  db:
-    image: postgres:15-alpine
-    container_name: multi-agent-db
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=multi_agent_db
+  # Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: multi-agent-ollama
     ports:
-      - "5432:5432"
+      - "11434:11434"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Persistent Ollama models
+      - ollama_models:/root/.ollama
     networks:
       - app-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: multi-agent-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # GPU support (uncomment if GPU available)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
 networks:
   app-network:
     driver: bridge
 
 volumes:
-  postgres_data:
-  redis_data:
+  app_data:
+  app_logs:
+  ollama_models:

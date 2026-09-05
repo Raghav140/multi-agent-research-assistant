@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from backend.config.dependencies import (
     get_arxiv_provider,
     get_llm_provider,
+    get_retrieval_engine,
     get_search_provider,
     get_wikipedia_provider,
 )
@@ -18,6 +19,7 @@ from backend.graph.state import create_initial_state
 from backend.graph.workflow import build_workflow
 from backend.providers.papers.arxiv_provider import ArxivProvider
 from backend.providers.search.wikipedia_provider import WikipediaProvider
+from backend.services.retrieval_engine import RetrievalEngine
 from backend.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -35,21 +37,24 @@ class ResearchResponse(BaseModel):
     """Response model for research endpoint."""
 
     success: bool = Field(..., description="Whether the research completed successfully")
+    degraded: bool = Field(default=False, description="Whether the result was degraded (fallback/cached)")
     answer: str = Field(..., description="Final answer to the research query")
     report: str = Field(..., description="Detailed research report")
     search_results: list[dict[str, Any]] = Field(default_factory=list, description="Web search results")
     papers: list[dict[str, Any]] = Field(default_factory=list, description="Academic research papers")
     execution_time_ms: float = Field(..., description="Total execution time in milliseconds")
     request_id: str = Field(..., description="Unique request identifier")
+    cache_hit: bool | None = Field(default=None, description="Whether the result was served from cache")
+    cache_metrics: dict[str, Any] | None = Field(default=None, description="Cache performance metrics")
+    error_code: str | None = Field(default=None, description="Error code for failed requests")
+    error_message: str | None = Field(default=None, description="User-facing error message")
 
 
 @research_router.post("/research", response_model=ResearchResponse)
 async def research(
     request: ResearchRequest,
     llm_provider: LLMProvider = Depends(get_llm_provider),
-    search_provider: SearchProvider = Depends(get_search_provider),
-    arxiv_provider: ArxivProvider = Depends(get_arxiv_provider),
-    wikipedia_provider: WikipediaProvider = Depends(get_wikipedia_provider),
+    retrieval_engine: RetrievalEngine = Depends(get_retrieval_engine),
 ) -> ResearchResponse:
     """Execute research workflow using LangGraph.
 
@@ -59,8 +64,7 @@ async def research(
     Args:
         request: Research request with query
         llm_provider: LLM provider for planning and report generation
-        search_provider: Web search provider
-        arxiv_provider: Academic paper search provider
+        retrieval_engine: Centralized retrieval engine for multi-provider orchestration
 
     Returns:
         Research response with answer, report, and sources
@@ -92,7 +96,7 @@ async def research(
 
     # Build workflow with dependency injection
     workflow_build_start = time.time()
-    workflow = build_workflow(llm_provider, search_provider, arxiv_provider, wikipedia_provider)
+    workflow = build_workflow(llm_provider, retrieval_engine)
     workflow_build_time = (time.time() - workflow_build_start) * 1000
 
     logger.info(
@@ -117,16 +121,31 @@ async def research(
         search_time = result_state.get("_timing_search", 0)
         report_time = result_state.get("_timing_report", 0)
 
+        # Extract cache information from state
+        research_metrics = result_state.get("metadata", {}).get("research_metrics", {})
+        cache_hit = research_metrics.get("cache_hits", 0) > 0 or result_state.get("memory_hit", False)
+        cache_metrics = {
+            "hits": research_metrics.get("cache_hits", 0),
+            "memory_hits": research_metrics.get("memory_hits", 0),
+            "total_variations": research_metrics.get("total_variations", 0),
+        }
+
+        # Set degraded flag if cache or memory was hit
+        degraded = cache_hit or result_state.get("memory_hit", False)
+
         # Track response serialization timing
         serialization_start = time.time()
         response = ResearchResponse(
             success=True,
+            degraded=degraded,
             answer=result_state.get("final_answer", ""),
             report=result_state.get("report", {}).get("content", ""),
             search_results=result_state.get("search_results", []),
             papers=result_state.get("research_papers", []),
             execution_time_ms=execution_time,
             request_id=request_id,
+            cache_hit=cache_hit,
+            cache_metrics=cache_metrics,
         )
         serialization_time = (time.time() - serialization_start) * 1000
 
@@ -192,13 +211,18 @@ async def research(
             },
         )
 
-        # Return error response
+        # Return error response (do not expose internal exception details to user)
         return ResearchResponse(
             success=False,
-            answer=f"Research failed: {str(e)}",
-            report=f"# Research Report\n\n## Error\n\nThe research workflow encountered an error: {str(e)}",
+            degraded=False,
+            answer="Research failed. Please try again.",
+            report="# Research Report\n\n## Error\n\nThe research workflow encountered an error. Please try again.",
             search_results=[],
             papers=[],
             execution_time_ms=execution_time,
             request_id=request_id,
+            cache_hit=None,
+            cache_metrics=None,
+            error_code="WORKFLOW_ERROR",
+            error_message="The research workflow encountered an error. Please try again.",
         )

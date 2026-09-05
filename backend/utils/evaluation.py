@@ -33,6 +33,12 @@ class RetrievalEvaluator:
         confidence_score: float,
         execution_time_ms: float,
         request_id: Optional[str] = None,
+        cache_hit: bool = False,
+        memory_hit: bool = False,
+        provider_count: int = 0,
+        successful_provider_count: int = 0,
+        failed_provider_count: int = 0,
+        provider_timeouts: int = 0,
     ) -> None:
         """Track retrieval quality metrics.
 
@@ -47,6 +53,12 @@ class RetrievalEvaluator:
             confidence_score: Overall confidence score
             execution_time_ms: Execution time in milliseconds
             request_id: Request identifier
+            cache_hit: Whether cache was hit
+            memory_hit: Whether memory was hit
+            provider_count: Total providers attempted
+            successful_provider_count: Number of successful providers
+            failed_provider_count: Number of failed providers
+            provider_timeouts: Number of provider timeouts
         """
         metrics = {
             "timestamp": time.time(),
@@ -61,6 +73,12 @@ class RetrievalEvaluator:
             "evidence_diversity": evidence_diversity,
             "confidence_score": confidence_score,
             "execution_time_ms": execution_time_ms,
+            "cache_hit": cache_hit,
+            "memory_hit": memory_hit,
+            "provider_count": provider_count,
+            "successful_provider_count": successful_provider_count,
+            "failed_provider_count": failed_provider_count,
+            "provider_timeouts": provider_timeouts,
         }
 
         self.metrics_history.append(metrics)
@@ -88,6 +106,11 @@ class RetrievalEvaluator:
         hallucination_risk: float,
         citation_score: float,
         request_id: Optional[str] = None,
+        report_generation_time_ms: float = 0.0,
+        citation_count: int = 0,
+        contradiction_count: int = 0,
+        regeneration_count: int = 0,
+        final_confidence: float = 0.0,
     ) -> None:
         """Track answer quality metrics.
 
@@ -97,6 +120,11 @@ class RetrievalEvaluator:
             hallucination_risk: Estimated hallucination risk
             citation_score: Citation quality score
             request_id: Request identifier
+            report_generation_time_ms: Report generation time in milliseconds
+            citation_count: Number of citations in report
+            contradiction_count: Number of contradictions detected
+            regeneration_count: Number of regeneration attempts
+            final_confidence: Final confidence score
         """
         metrics = {
             "timestamp": time.time(),
@@ -105,6 +133,11 @@ class RetrievalEvaluator:
             "leakage_score": leakage_score,
             "hallucination_risk": hallucination_risk,
             "citation_score": citation_score,
+            "report_generation_time_ms": report_generation_time_ms,
+            "citation_count": citation_count,
+            "contradiction_count": contradiction_count,
+            "regeneration_count": regeneration_count,
+            "final_confidence": final_confidence,
         }
 
         # Add to most recent retrieval metrics if available

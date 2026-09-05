@@ -28,8 +28,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY ruff.toml ./
 
-# Install dependencies
-RUN uv pip install --system -e ".[dev]"
+# Install dependencies into virtual environment
+RUN uv pip install -e ".[dev]"
 
 # Stage 2: Runtime
 FROM python:3.10.11-slim
@@ -53,6 +53,10 @@ RUN useradd -m -u 1000 appuser
 # Set working directory
 WORKDIR /app
 
+# Create writable directories for SQLite databases and logs
+RUN mkdir -p /app/data /app/logs && \
+    chown -R appuser:appuser /app
+
 # Copy application code
 COPY --chown=appuser:appuser backend/ ./backend/
 COPY --chown=appuser:appuser pyproject.toml ./
@@ -66,7 +70,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/v1/system/health || exit 1
 
 # Run application
 CMD ["uvicorn", "backend.config.main:app", "--host", "0.0.0.0", "--port", "8000"]

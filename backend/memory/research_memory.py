@@ -48,15 +48,29 @@ class ResearchMemory:
             db_path: Path to SQLite database file (default: ./research_memory.db)
         """
         if db_path is None:
-            db_path = str(Path(__file__).parent.parent.parent / "research_memory.db")
+            # Try to get from settings, otherwise use default
+            try:
+                from backend.config.config import settings
+                db_path = settings.research_memory_db_path
+            except Exception:
+                db_path = str(Path(__file__).parent.parent.parent / "research_memory.db")
 
         self.db_path = db_path
+        self._ensure_directory_exists()
         self._initialize_database()
 
         logger.info(
             f"Research memory initialized",
             extra={"db_path": db_path},
         )
+
+    def _ensure_directory_exists(self) -> None:
+        """Ensure the directory for the database file exists."""
+        db_file_path = Path(self.db_path)
+        db_dir = db_file_path.parent
+        if db_dir != Path(".") and not db_dir.exists():
+            db_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created database directory: {db_dir}")
 
     def _initialize_database(self) -> None:
         """Initialize the database schema."""

@@ -30,12 +30,23 @@ CREATE TABLE IF NOT EXISTS evaluation_metrics (
     evidence_diversity REAL,
     confidence_score REAL,
     execution_time_ms REAL,
+    cache_hit INTEGER DEFAULT 0,
+    memory_hit INTEGER DEFAULT 0,
+    provider_count INTEGER DEFAULT 0,
+    successful_provider_count INTEGER DEFAULT 0,
+    failed_provider_count INTEGER DEFAULT 0,
+    provider_timeouts INTEGER DEFAULT 0,
 
     -- Answer metrics
     structure_score REAL,
     leakage_score REAL,
     hallucination_risk REAL,
     citation_score REAL,
+    report_generation_time_ms REAL,
+    citation_count INTEGER DEFAULT 0,
+    contradiction_count INTEGER DEFAULT 0,
+    regeneration_count INTEGER DEFAULT 0,
+    final_confidence REAL,
 
     -- Additional metadata
     metadata TEXT,
@@ -61,15 +72,29 @@ class MetricsStorage:
             db_path: Path to SQLite database file (default: ./evaluation_metrics.db)
         """
         if db_path is None:
-            db_path = str(Path(__file__).parent.parent.parent / "evaluation_metrics.db")
+            # Try to get from settings, otherwise use default
+            try:
+                from backend.config.config import settings
+                db_path = settings.evaluation_metrics_db_path
+            except Exception:
+                db_path = str(Path(__file__).parent.parent.parent / "evaluation_metrics.db")
 
         self.db_path = db_path
+        self._ensure_directory_exists()
         self._initialize_database()
 
         logger.info(
             f"Metrics storage initialized",
             extra={"db_path": db_path},
         )
+
+    def _ensure_directory_exists(self) -> None:
+        """Ensure the directory for the database file exists."""
+        db_file_path = Path(self.db_path)
+        db_dir = db_file_path.parent
+        if db_dir != Path(".") and not db_dir.exists():
+            db_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created database directory: {db_dir}")
 
     def _initialize_database(self) -> None:
         """Initialize the database schema."""
@@ -124,8 +149,10 @@ class MetricsStorage:
                 INSERT INTO evaluation_metrics
                 (timestamp, request_id, query, query_type, providers_used, sources_found, sources_selected,
                  selection_rate, source_quality_score, evidence_diversity, confidence_score, execution_time_ms,
-                 structure_score, leakage_score, hallucination_risk, citation_score, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_hit, memory_hit, provider_count, successful_provider_count, failed_provider_count, provider_timeouts,
+                 structure_score, leakage_score, hallucination_risk, citation_score, report_generation_time_ms,
+                 citation_count, contradiction_count, regeneration_count, final_confidence, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     time.time(),
@@ -140,10 +167,21 @@ class MetricsStorage:
                     retrieval_metrics.get("evidence_diversity", 0.0) if retrieval_metrics else 0.0,
                     retrieval_metrics.get("confidence_score", 0.0) if retrieval_metrics else 0.0,
                     retrieval_metrics.get("execution_time_ms", 0.0) if retrieval_metrics else 0.0,
+                    1 if retrieval_metrics.get("cache_hit", False) else 0 if retrieval_metrics else 0,
+                    1 if retrieval_metrics.get("memory_hit", False) else 0 if retrieval_metrics else 0,
+                    retrieval_metrics.get("provider_count", 0) if retrieval_metrics else 0,
+                    retrieval_metrics.get("successful_provider_count", 0) if retrieval_metrics else 0,
+                    retrieval_metrics.get("failed_provider_count", 0) if retrieval_metrics else 0,
+                    retrieval_metrics.get("provider_timeouts", 0) if retrieval_metrics else 0,
                     answer_metrics.get("structure_score", 0.0) if answer_metrics else 0.0,
                     answer_metrics.get("leakage_score", 0.0) if answer_metrics else 0.0,
                     answer_metrics.get("hallucination_risk", 0.0) if answer_metrics else 0.0,
                     answer_metrics.get("citation_score", 0.0) if answer_metrics else 0.0,
+                    answer_metrics.get("report_generation_time_ms", 0.0) if answer_metrics else 0.0,
+                    answer_metrics.get("citation_count", 0) if answer_metrics else 0,
+                    answer_metrics.get("contradiction_count", 0) if answer_metrics else 0,
+                    answer_metrics.get("regeneration_count", 0) if answer_metrics else 0,
+                    answer_metrics.get("final_confidence", 0.0) if answer_metrics else 0.0,
                     metadata_json,
                 ),
             )
@@ -193,8 +231,11 @@ class MetricsStorage:
                     """
                     SELECT id, timestamp, request_id, query, query_type, providers_used, sources_found,
                            sources_selected, selection_rate, source_quality_score, evidence_diversity,
-                           confidence_score, execution_time_ms, structure_score, leakage_score,
-                           hallucination_risk, citation_score, metadata
+                           confidence_score, execution_time_ms, cache_hit, memory_hit, provider_count,
+                           successful_provider_count, failed_provider_count, provider_timeouts,
+                           structure_score, leakage_score, hallucination_risk, citation_score,
+                           report_generation_time_ms, citation_count, contradiction_count,
+                           regeneration_count, final_confidence, metadata
                     FROM evaluation_metrics
                     WHERE query_type = ?
                     ORDER BY timestamp DESC
@@ -207,8 +248,11 @@ class MetricsStorage:
                     """
                     SELECT id, timestamp, request_id, query, query_type, providers_used, sources_found,
                            sources_selected, selection_rate, source_quality_score, evidence_diversity,
-                           confidence_score, execution_time_ms, structure_score, leakage_score,
-                           hallucination_risk, citation_score, metadata
+                           confidence_score, execution_time_ms, cache_hit, memory_hit, provider_count,
+                           successful_provider_count, failed_provider_count, provider_timeouts,
+                           structure_score, leakage_score, hallucination_risk, citation_score,
+                           report_generation_time_ms, citation_count, contradiction_count,
+                           regeneration_count, final_confidence, metadata
                     FROM evaluation_metrics
                     ORDER BY timestamp DESC
                     LIMIT ? OFFSET ?
@@ -223,8 +267,10 @@ class MetricsStorage:
             for record in records:
                 (record_id, timestamp, request_id, query, qtype, providers_json,
                  sources_found, sources_selected, selection_rate, source_quality,
-                 diversity, confidence, exec_time, structure, leakage,
-                 hallucination, citation, metadata_json) = record
+                 diversity, confidence, exec_time, cache_hit, memory_hit,
+                 provider_count, successful_provider_count, failed_provider_count, provider_timeouts,
+                 structure, leakage, hallucination, citation, report_time,
+                 citation_count, contradiction_count, regeneration_count, final_confidence, metadata_json) = record
 
                 results.append({
                     "id": record_id,
@@ -240,10 +286,21 @@ class MetricsStorage:
                     "evidence_diversity": diversity,
                     "confidence_score": confidence,
                     "execution_time_ms": exec_time,
+                    "cache_hit": bool(cache_hit),
+                    "memory_hit": bool(memory_hit),
+                    "provider_count": provider_count,
+                    "successful_provider_count": successful_provider_count,
+                    "failed_provider_count": failed_provider_count,
+                    "provider_timeouts": provider_timeouts,
                     "structure_score": structure,
                     "leakage_score": leakage,
                     "hallucination_risk": hallucination,
                     "citation_score": citation,
+                    "report_generation_time_ms": report_time,
+                    "citation_count": citation_count,
+                    "contradiction_count": contradiction_count,
+                    "regeneration_count": regeneration_count,
+                    "final_confidence": final_confidence,
                     "metadata": json.loads(metadata_json) if metadata_json else {},
                 })
 

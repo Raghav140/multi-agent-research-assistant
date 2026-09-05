@@ -151,6 +151,32 @@ class DatabaseSettings(BaseSettings):
     )
 
 
+class SQLiteSettings(BaseSettings):
+    """SQLite database configuration settings.
+
+    Attributes:
+        research_memory_db_path: Path to research memory SQLite database
+        evaluation_metrics_db_path: Path to evaluation metrics SQLite database
+    """
+
+    research_memory_db_path: str = Field(
+        default="./research_memory.db",
+        description="Path to research memory SQLite database",
+    )
+    evaluation_metrics_db_path: str = Field(
+        default="./evaluation_metrics.db",
+        description="Path to evaluation metrics SQLite database",
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="SQLITE_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+
 class RedisSettings(BaseSettings):
     """Redis configuration settings.
 
@@ -239,6 +265,9 @@ class OllamaSettings(BaseSettings):
         ollama_timeout: Request timeout in seconds
         ollama_disable_reasoning: Disable reasoning/thinking mode for models like Qwen3
         ollama_stream: Enable streaming responses (disabled by default for Qwen3)
+        ollama_report_temperature: Temperature for report generation
+        ollama_report_max_tokens: Max tokens for report generation
+        ollama_report_timeout: Timeout for report generation specifically
     """
 
     ollama_host: str = Field(
@@ -262,6 +291,24 @@ class OllamaSettings(BaseSettings):
     ollama_stream: bool = Field(
         default=False,
         description="Enable streaming responses (disabled by default for Qwen3)",
+    )
+    ollama_report_temperature: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Temperature for report generation (lower = more deterministic)",
+    )
+    ollama_report_max_tokens: int = Field(
+        default=384,
+        ge=100,
+        le=1000,
+        description="Max tokens for report generation",
+    )
+    ollama_report_timeout: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="Timeout for report generation specifically (seconds)",
     )
 
     model_config = SettingsConfigDict(
@@ -336,7 +383,7 @@ class SecuritySettings(BaseSettings):
         description="Access token expiration time in minutes",
     )
     cors_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8080"],
+        default=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:4173", "http://127.0.0.1:4173"],
         description="Allowed CORS origins",
     )
     rate_limit_per_minute: int = Field(
@@ -375,6 +422,7 @@ class Settings:
         server: ServerSettings | None = None,
         logging: LoggingSettings | None = None,
         database: DatabaseSettings | None = None,
+        sqlite: SQLiteSettings | None = None,
         redis: RedisSettings | None = None,
         llm: LLMSettings | None = None,
         ollama: OllamaSettings | None = None,
@@ -386,6 +434,7 @@ class Settings:
         self.server = server or ServerSettings()
         self.logging = logging or LoggingSettings()
         self.database = database or DatabaseSettings()
+        self.sqlite = sqlite or SQLiteSettings()
         self.redis = redis or RedisSettings()
         self.llm = llm or LLMSettings()
         self.ollama = ollama or OllamaSettings()
@@ -454,6 +503,16 @@ class Settings:
         return self.database.database_max_overflow
 
     @property
+    def research_memory_db_path(self) -> str:
+        """Get research memory database path."""
+        return self.sqlite.research_memory_db_path
+
+    @property
+    def evaluation_metrics_db_path(self) -> str:
+        """Get evaluation metrics database path."""
+        return self.sqlite.evaluation_metrics_db_path
+
+    @property
     def redis_url(self) -> str:
         """Get Redis URL."""
         return self.redis.redis_url
@@ -507,6 +566,21 @@ class Settings:
     def ollama_stream(self) -> bool:
         """Get Ollama stream setting."""
         return self.ollama.ollama_stream
+
+    @property
+    def ollama_report_temperature(self) -> float:
+        """Get Ollama report temperature setting."""
+        return self.ollama.ollama_report_temperature
+
+    @property
+    def ollama_report_max_tokens(self) -> int:
+        """Get Ollama report max tokens setting."""
+        return self.ollama.ollama_report_max_tokens
+
+    @property
+    def ollama_report_timeout(self) -> int:
+        """Get Ollama report timeout setting."""
+        return self.ollama.ollama_report_timeout
 
     @property
     def chunk_size(self) -> int:

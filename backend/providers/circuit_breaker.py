@@ -117,6 +117,7 @@ class CircuitBreaker:
         Raises:
             Exception: If provider call fails and circuit is open
         """
+        # Acquire lock only to check state and potentially transition
         async with self._lock:
             # Check if circuit is open and cooldown has elapsed
             if self._state == CircuitState.OPEN:
@@ -134,24 +135,25 @@ class CircuitBreaker:
                     # Cooldown elapsed, transition to half-open
                     self._transition_to_half_open()
 
-            # Execute call with timeout
-            try:
-                result = await asyncio.wait_for(
-                    func(*args, **kwargs),
-                    timeout=self.timeout_seconds,
-                )
+        # Release lock before executing provider function
+        # Execute call with timeout
+        try:
+            result = await asyncio.wait_for(
+                func(*args, **kwargs),
+                timeout=self.timeout_seconds,
+            )
 
-                # Record success
-                await self._record_success()
-                return result
+            # Re-acquire lock to record success
+            await self._record_success()
+            return result
 
-            except asyncio.TimeoutError:
-                await self._record_failure("timeout")
-                raise Exception(f"Provider {self.provider_name} timeout")
+        except asyncio.TimeoutError:
+            await self._record_failure("timeout")
+            raise Exception(f"Provider {self.provider_name} timeout")
 
-            except Exception as e:
-                await self._record_failure(str(e))
-                raise
+        except Exception as e:
+            await self._record_failure(str(e))
+            raise
 
     async def _record_success(self) -> None:
         """Record a successful provider call."""
@@ -240,9 +242,9 @@ class CircuitBreaker:
             },
         )
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """Reset circuit breaker to closed state."""
-        with self._lock:
+        async with self._lock:
             self._state = CircuitState.CLOSED
             self._failure_count = 0
             self._success_count = 0

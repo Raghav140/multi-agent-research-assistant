@@ -18,6 +18,7 @@ from backend.utils.quality_assessment import (
 )
 from backend.utils.query_classifier import classify_query, get_validation_thresholds
 from backend.utils.confidence_calculator import calculate_confidence_from_sources
+from backend.utils.evaluation import get_evaluator
 
 logger = get_logger(__name__)
 
@@ -143,6 +144,73 @@ def _calculate_citation_quality_score(
     return citation_quality
 
 
+def detect_meta_commentary(report: str) -> tuple[bool, str]:
+    """Detect meta-commentary in LLM output before expensive validation.
+
+    This is a cheap early detection to avoid full validation on obviously
+    invalid outputs like "we are writing a markdown report..."
+
+    Args:
+        report: Generated report content
+
+    Returns:
+        Tuple of (has_meta_commentary, reason)
+    """
+    if not report or len(report.strip()) < 10:
+        return True, "Report is empty or too short"
+
+    report_lower = report.lower()
+
+    # Meta-commentary patterns that indicate the model is talking about the task
+    # instead of doing it
+    meta_patterns = [
+        "we are writing",
+        "the user says",
+        "instructions:",
+        "the task is",
+        "here is the report",
+        "i will provide",
+        "we need to",
+        "let me think",
+        "i am going to",
+        "we are generating",
+        "the system instructed",
+        "the model was asked",
+        "the request was",
+        "to fulfill the request",
+        "to complete the task",
+        "as requested",
+        "per the request",
+        "according to the user",
+        "the user provided",
+        "given the prompt",
+        "given the instructions",
+        "step by step",
+        "reasoning:",
+        "analysis:",
+        "thoughts:",
+        "planning:",
+        "internal:",
+        "hidden:",
+        "secret:",
+        "system prompt",
+        "assistant",
+        "the prompt",
+        "we are asked",
+        "based on the instructions",
+        "the user requested",
+        "the user wants",
+    ]
+
+    # Check for meta-commentary in the first 200 characters (most likely location)
+    first_200 = report_lower[:200]
+    for pattern in meta_patterns:
+        if pattern in first_200:
+            return True, f"Meta-commentary detected: '{pattern}'"
+
+    return False, ""
+
+
 def validate_report_output(report: str) -> tuple[bool, str]:
     """Validate report output for prompt leakage and structure compliance.
 
@@ -172,60 +240,27 @@ def validate_report_output(report: str) -> tuple[bool, str]:
         if section not in report:
             return False, f"Missing required section: '{section}'"
 
-    # Check for prompt leakage indicators - expanded list
+    # Check for prompt leakage indicators - focused list (meta-commentary already checked)
     leakage_phrases = [
         "the problem states",
-        "let me think",
-        "i will",
         "based on the prompt",
         "the instructions say",
-        "the user says",
         "as instructed",
         "following the instructions",
         "according to the prompt",
         "the prompt asks",
         "we are given",
-        "the task is",
         "let me re-read",
-        "first, i need to",
-        "to answer this",
-        "i need to",
-        "we are writing",
         "the prompt said",
         "the instructions stated",
         "the problem said",
-        "let's think",
-        "let us think",
-        "i should",
-        "i am going to",
-        "i am writing",
-        "we are generating",
         "the system instructed",
         "the model was asked",
         "the request was",
-        "step by step",
-        "reasoning:",
-        "analysis:",
-        "thoughts:",
-        "planning:",
         "internal:",
         "hidden:",
         "secret:",
         "system prompt",
-        "assistant",
-        "the prompt",
-        "we are asked",
-        "based on the instructions",
-        "the user requested",
-        "the user wants",
-        "to fulfill the request",
-        "to complete the task",
-        "as requested",
-        "per the request",
-        "according to the user",
-        "the user provided",
-        "given the prompt",
-        "given the instructions",
     ]
 
     report_lower = report.lower()
@@ -261,6 +296,133 @@ def validate_report_output(report: str) -> tuple[bool, str]:
             return False, f"Reasoning indicator detected: '{phrase}'"
 
     return True, "Validation passed"
+
+
+def post_process_report(report: str) -> str:
+    """Safely normalize LLM output before validation.
+
+    Allowed operations:
+    - Remove accidental leading/trailing whitespace
+    - Remove harmless markdown fences
+    - Locate first "## Executive Summary" when model adds harmless intro
+    - Normalize duplicated blank lines
+
+    Args:
+        report: Generated report content
+
+    Returns:
+        Normalized report content
+    """
+    if not report:
+        return report
+
+    # Strip leading/trailing whitespace
+    report = report.strip()
+
+    # Remove markdown code fences if present
+    if report.startswith("```"):
+        lines = report.split("\n")
+        if lines[0].startswith("```"):
+            # Remove first line (opening fence)
+            lines = lines[1:]
+            # Remove last line if it's a closing fence
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            report = "\n".join(lines).strip()
+
+    # If report doesn't start with ## Executive Summary, try to locate it
+    if not report.startswith("## Executive Summary"):
+        # Find the first occurrence of ## Executive Summary
+        idx = report.find("## Executive Summary")
+        if idx != -1:
+            # Extract from that point onward
+            report = report[idx:].strip()
+
+    # Normalize duplicated blank lines (more than 2 consecutive)
+    import re
+    report = re.sub(r"\n{3,}", "\n\n", report)
+
+    return report
+
+
+def generate_deterministic_fallback(user_query: str, search_results: list[dict[str, Any]], research_papers: list[dict[str, Any]]) -> str:
+    """Generate a deterministic fallback report using retrieved evidence.
+
+    This function creates a useful report based strictly on the retrieved sources
+    without any LLM generation. It preserves citations and structure.
+
+    Args:
+        user_query: The user's research query
+        search_results: Web search results
+        research_papers: Academic papers
+
+    Returns:
+        Deterministic fallback report with proper structure and citations
+    """
+    all_sources = search_results + research_papers
+
+    if not all_sources:
+        return f"""## Executive Summary
+
+Unable to generate a valid report for: {user_query}
+
+## Evidence
+
+No sources were retrieved for this query.
+
+## References
+
+No sources available."""
+
+    # Extract key information from sources
+    key_findings = []
+    evidence_details = []
+
+    for i, source in enumerate(all_sources[:5], 1):  # Limit to top 5 sources
+        title = source.get("title", "Unknown")
+        snippet = source.get("snippet", source.get("abstract", ""))
+        url = source.get("url", source.get("pdf_url", ""))
+
+        key_findings.append(f"- {title} [{i}]")
+        evidence_details.append(f"**Source [{i}]**: {title}")
+        if snippet:
+            evidence_details.append(f"{snippet[:200]}...")
+        if url:
+            evidence_details.append(f"URL: {url}")
+        evidence_details.append("")
+
+    # Build executive summary
+    executive_summary = f"Based on {len(all_sources)} retrieved sources, this report addresses: ${user_query}."
+
+    # Build the fallback report
+    report = f"""## Executive Summary
+
+{executive_summary}
+
+## Key Findings
+
+{chr(10).join(key_findings)}
+
+## Detailed Analysis
+
+The retrieved sources provide information about {user_query}. The evidence comes from {len(search_results)} web sources and {len(research_papers)} academic papers.
+
+## Evidence
+
+{chr(10).join(evidence_details)}
+
+## References
+
+"""
+
+    # Add numbered references
+    for i, source in enumerate(all_sources[:5], 1):
+        title = source.get("title", "Unknown")
+        url = source.get("url", source.get("pdf_url", ""))
+        report += f"[{i}] {title}\n"
+        if url:
+            report += f"    URL: {url}\n"
+    return report
 
 
 def append_references_section(report: str, search_results: list[dict[str, Any]], research_papers: list[dict[str, Any]]) -> str:
@@ -351,6 +513,11 @@ async def report_node(
         },
     )
 
+    # Load fusion metrics from research node
+    research_metrics = state.get("metadata", {}).get("research_metrics", {})
+    diversity_score = research_metrics.get("diversity_score", 0.0)
+    agreement_score = research_metrics.get("agreement_score", 0.0)
+
     # Check if there's any relevant evidence with validation gate
     has_web_results = len(search_results) > 0
     has_papers = len(research_papers) > 0
@@ -363,22 +530,42 @@ async def report_node(
     average_semantic_similarity = 0.0
     confidence_score = 0.0
     confidence_level = "Low"
-    agreement_score = 0.0
     contradiction_score = 0.0
     coverage_score = 0.0
+    validation_start = time.time()
 
     if has_web_results or has_papers:
         # Calculate average scores
         all_sources = search_results + research_papers
         if all_sources:
-            relevances = [s.get("relevance_score", 0) for s in all_sources]
+            # Use overall_score as the canonical relevance signal from hybrid scoring model
+            # Fall back to relevance_score for backward compatibility with older providers
+            relevances = [s.get("overall_score", s.get("relevance_score", 0)) for s in all_sources]
             qualities = [s.get("quality_score", 0) for s in all_sources]
             semantic_sims = [s.get("semantic_similarity", 0) for s in all_sources]
             average_relevance = sum(relevances) / len(relevances)
             average_quality = sum(qualities) / len(qualities)
             average_semantic_similarity = sum(semantic_sims) / len(semantic_sims)
 
-            # Use improved confidence calculation model
+        # Calculate agreement score between sources before confidence
+        if len(all_sources) >= 2:
+            from backend.utils.semantic_similarity import compute_source_agreement
+
+            source_texts = []
+            for source in all_sources:
+                if "abstract" in source:
+                    source_texts.append(source["abstract"])
+                elif "snippet" in source:
+                    source_texts.append(source["snippet"])
+
+            if len(source_texts) >= 2:
+                agreements = []
+                for i in range(len(source_texts)):
+                    for j in range(i + 1, len(source_texts)):
+                        agreements.append(compute_source_agreement(source_texts[i], source_texts[j]))
+                if agreements:
+                    agreement_score = sum(agreements) / len(agreements)
+
             confidence_result = calculate_confidence_from_sources(
                 sources=all_sources,
                 agreement_score=agreement_score,
@@ -392,7 +579,6 @@ async def report_node(
             assess_evidence_sufficiency,
             detect_contradictions,
         )
-        from backend.utils.semantic_similarity import compute_source_agreement
 
         sufficiency_data = assess_evidence_sufficiency(
             search_results,
@@ -401,26 +587,6 @@ async def report_node(
         )
         evidence_sufficient = sufficiency_data["is_sufficient"]
         evidence_reason = sufficiency_data["reason"]
-
-        # Calculate agreement score between sources
-        agreement_score = 0.0
-        if len(all_sources) >= 2:
-            source_texts = []
-            for source in all_sources:
-                if "abstract" in source:
-                    source_texts.append(source["abstract"])
-                elif "snippet" in source:
-                    source_texts.append(source["snippet"])
-
-            if len(source_texts) >= 2:
-                # Calculate pairwise agreements
-                agreements = []
-                for i in range(len(source_texts)):
-                    for j in range(i + 1, len(source_texts)):
-                        agreement = compute_source_agreement(source_texts[i], source_texts[j])
-                        agreements.append(agreement)
-                if agreements:
-                    agreement_score = sum(agreements) / len(agreements)
 
         # Calculate contradiction score
         contradiction_data = detect_contradictions(search_results, research_papers)
@@ -486,6 +652,8 @@ async def report_node(
         validation_passed = False
         validation_reason = f"Coverage score ({coverage_score:.2f}) below threshold ({MIN_COVERAGE_SCORE})"
 
+    validation_ms = (time.time() - validation_start) * 1000
+
     if not validation_passed:
         # Evidence insufficient - generate graceful response without LLM call
         logger.warning(
@@ -531,7 +699,7 @@ For better results, try:
 - For research: specify "research", "study", or "analysis"
 """
 
-        execution_time = time.time() - start_time
+        execution_time_ms = (time.time() - start_time) * 1000
 
         updated_state = state.copy()
         updated_state["report"] = {
@@ -555,7 +723,7 @@ For better results, try:
             "node": "report",
             "action": "no_evidence_found",
             "status": "completed",
-            "execution_time_ms": execution_time * 1000,
+            "execution_time_ms": execution_time_ms,
             "report_length": len(no_evidence_report),
         })
 
@@ -563,7 +731,7 @@ For better results, try:
             f"Report node completed - No evidence response generated",
             extra={
                 "request_id": request_id,
-                "execution_time_ms": execution_time * 1000,
+                "execution_time_ms": execution_time_ms,
                 "report_length": len(no_evidence_report),
                 "response_type": "no_evidence",
             },
@@ -572,6 +740,7 @@ For better results, try:
         return updated_state
 
     # Build the prompt with improved structure and references (optimized with quality features)
+    prompt_build_start = time.time()
     prompt_parts = [
         f"Question: {user_query}",
         "",
@@ -615,39 +784,33 @@ For better results, try:
         prompt_parts.append("")
 
     prompt_parts.extend([
-        "Write a concise Markdown report with this structure:",
+        "Generate the final research report.",
+        "Return ONLY the Markdown report.",
+        "Do not discuss these instructions.",
+        "Do not describe your role.",
+        "Do not explain how the report was generated.",
+        "Use only the supplied evidence.",
+        "Use citations [1], [2], etc.",
+        "",
+        "Report structure:",
         "## Executive Summary",
         "## Key Findings",
         "## Detailed Analysis",
         "## Evidence",
         "## References",
         "",
-        "Use numbered citations [1], [2] matching sources above. No invented citations.",
-        "",
-        "CRITICAL INSTRUCTIONS - MUST FOLLOW EXACTLY:",
-        "- Start your response IMMEDIATELY with '## Executive Summary'",
-        "- Do NOT include any introductory text, reasoning, or explanations before the first heading",
-        "- Do NOT repeat these instructions in your response",
-        "- Do NOT mention 'the prompt', 'the instructions', 'the problem states', 'we are writing', or similar phrases",
-        "- Do NOT include phrases like 'Let me think', 'I will', 'Based on the prompt', 'First I will', 'Step by step'",
-        "- Do NOT include reasoning indicators like 'Step 1:', 'Step 2:', 'First,', 'Secondly,', 'Finally,'",
-        "- Do NOT expose internal prompts, reasoning process, or chain-of-thought",
-        "- Do NOT explain how you generated the answer or describe your thought process",
-        "- Output ONLY the final Markdown report with the specified sections",
-        "- Every statement must be based on the provided sources above",
-        "- Do NOT use external knowledge or information not in the sources",
-        "- If information is missing from sources, state that clearly instead of inventing it",
-        "",
-        "Begin your response now with ## Executive Summary",
+        "Start immediately with ## Executive Summary.",
     ])
 
     prompt = "\n".join(prompt_parts)
+    prompt_build_ms = (time.time() - prompt_build_start) * 1000
 
     # Log detailed prompt construction for debugging
     logger.info(
         "Report prompt construction details",
         extra={
             "request_id": request_id,
+            "prompt_build_ms": prompt_build_ms,
             "system_instructions_chars": len("\n".join(prompt_parts[:6])),
             "user_query_chars": len(user_query),
             "num_web_results_in_prompt": len([p for p in prompt_parts if "Sources:" in p or p.startswith(("1.", "2."))]),
@@ -664,33 +827,138 @@ For better results, try:
     )
 
     try:
-        # Generate report using LLM provider
-        report = await llm_provider.generate(
-            prompt=prompt,
-            temperature=0.5,
-            max_tokens=384,  # Reduced for faster generation
-            request_id=request_id,
-            function_name="report",
-        )
+        # Generate report using LLM provider with timeout
+        llm_report_start = time.time()
+        import asyncio
+        from backend.config.config import settings
 
-        # Append references section
+        report_generation_timeout = settings.ollama_report_timeout  # Use report-specific timeout
+
+        try:
+            report = await asyncio.wait_for(
+                llm_provider.generate(
+                    prompt=prompt,
+                    temperature=settings.ollama_report_temperature,  # Use configured temperature
+                    max_tokens=settings.ollama_report_max_tokens,  # Use configured max tokens
+                    request_id=request_id,
+                    function_name="report",
+                ),
+                timeout=report_generation_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Report generation timeout after {report_generation_timeout}s",
+                extra={
+                    "request_id": request_id,
+                    "timeout_seconds": report_generation_timeout,
+                },
+            )
+            # Use deterministic fallback on timeout
+            report_with_refs = generate_deterministic_fallback(user_query, search_results, research_papers)
+            report_fallback_used = True
+            validation_passed = True
+            validation_reason = "Report generation timeout - used deterministic fallback"
+            llm_report_ms = report_generation_timeout * 1000
+            execution_time_ms = (time.time() - start_time) * 1000
+
+            # Track metrics for timeout case
+            try:
+                evaluator = get_evaluator()
+                evaluator.track_answer_metrics(
+                    structure_score=1.0,
+                    leakage_score=1.0,
+                    hallucination_risk=1.0 - confidence_score,
+                    citation_score=0.0,
+                    request_id=request_id,
+                    report_generation_time_ms=execution_time_ms,
+                    citation_count=0,
+                    contradiction_count=len(contradictions),
+                    regeneration_count=0,
+                    final_confidence=confidence_score,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to track answer metrics: {e}")
+
+            updated_state = state.copy()
+            updated_state["report"] = {
+                "content": report_with_refs,
+                "sources": {
+                    "web_results": len(search_results),
+                    "papers": len(research_papers),
+                },
+                "generated_at": time.time(),
+                "quality_metrics": {
+                    "confidence_level": confidence_level,
+                    "confidence_score": confidence_score,
+                    "contradictions_detected": len(contradictions),
+                    "evidence_sufficient": evidence_sufficient,
+                    "evidence_reason": evidence_reason,
+                },
+            }
+            updated_state["final_answer"] = report_with_refs
+            updated_state["intermediate_steps"] = state.get("intermediate_steps", [])
+            updated_state["intermediate_steps"].append({
+                "node": "report",
+                "action": "timeout_fallback",
+                "status": "completed",
+                "execution_time_ms": execution_time_ms,
+                "report_length": len(report_with_refs),
+                "fallback_used": True,
+            })
+
+            logger.info(
+                f"Report node completed with timeout fallback",
+                extra={
+                    "request_id": request_id,
+                    "execution_time_ms": execution_time_ms,
+                    "report_length": len(report_with_refs),
+                    "fallback_used": True,
+                },
+            )
+
+            return updated_state
+
+        llm_report_ms = (time.time() - llm_report_start) * 1000
+
+        # Post-process report before validation
+        report = post_process_report(report)
         report_with_refs = append_references_section(report, search_results, research_papers)
 
         # Validate citations
         citations_valid, citations_reason, citation_quality_score = validate_citations(report_with_refs, search_results, research_papers)
 
-        # Validate output for prompt leakage and structure with up to 2 regeneration attempts
-        max_regenerations = 2  # Reduced from 3 to 2 as per requirements
-        regeneration_count = 0
-        validation_passed, validation_reason = validate_report_output(report_with_refs)
+        # Cheap meta-commentary detection before full validation
+        has_meta_commentary, meta_reason = detect_meta_commentary(report)
+        if has_meta_commentary:
+            logger.warning(
+                f"Meta-commentary detected in initial generation: {meta_reason}",
+                extra={
+                    "request_id": request_id,
+                    "meta_reason": meta_reason,
+                },
+            )
+            validation_passed = False
+            validation_reason = f"Meta-commentary: {meta_reason}"
+        else:
+            # Full validation only if no meta-commentary
+            validation_passed, validation_reason = validate_report_output(report_with_refs)
 
         # Combine validation results
         if not citations_valid:
             validation_passed = False
             validation_reason = f"Citation validation failed: {citations_reason}"
 
+        # Strict limit: 1 initial generation + 1 regeneration = max 2 LLM calls
+        max_regenerations = 1  # Only 1 regeneration allowed
+        regeneration_count = 0
+        report_generation_attempts = 1
+        meta_commentary_detected = has_meta_commentary
+        report_fallback_used = False
+
         while not validation_passed and regeneration_count < max_regenerations:
             regeneration_count += 1
+            report_generation_attempts += 1
+            regeneration_start = time.time()
             logger.warning(
                 f"Report validation failed (attempt {regeneration_count}/{max_regenerations}): {validation_reason}. Regenerating.",
                 extra={
@@ -700,45 +968,61 @@ For better results, try:
                 },
             )
 
-            # Regenerate with increasingly strict prompts
-            if regeneration_count == 1:
-                simplified_prompt = f"""Question: {user_query}
+            # Simplified regeneration prompt
+            simplified_prompt = f"""Question: {user_query}
 
 Sources:
 {chr(10).join([f"[{i}] {r.get('title', 'N/A')}" for i, r in enumerate(search_results[:2], 1)])}
 
-Write a concise Markdown report with this structure:
+Generate the final research report.
+Return ONLY the Markdown report.
+Start immediately with ## Executive Summary.
+
+Report structure:
 ## Executive Summary
 ## Key Findings
 ## Detailed Analysis
 ## Evidence
-## References
-
-Start immediately with ## Executive Summary. Output ONLY the report. No introductory text."""
-            elif regeneration_count == 2:
-                simplified_prompt = f"""Question: {user_query}
-
-Write ONLY a Markdown report starting with ## Executive Summary.
-No introductory text. No explanations. No reasoning.
-Just the report with sections: Executive Summary, Key Findings, Detailed Analysis, Evidence, References."""
-            else:
-                simplified_prompt = f"## Executive Summary\n\nUnable to generate a valid report for: {user_query}\n\n## Evidence\n\nRetrieved sources were insufficient to answer this query accurately."
-                report_with_refs = simplified_prompt
-                validation_passed = True
-                validation_reason = "Used fallback template"
-                break
+## References"""
 
             try:
-                report = await llm_provider.generate(
-                    prompt=simplified_prompt,
-                    temperature=0.3,  # Lower temperature for more deterministic output
-                    max_tokens=384,
-                    request_id=request_id,
-                    function_name="report",
+                llm_regeneration_start = time.time()
+                report = await asyncio.wait_for(
+                    llm_provider.generate(
+                        prompt=simplified_prompt,
+                        temperature=settings.ollama_report_temperature,  # Use configured temperature
+                        max_tokens=settings.ollama_report_max_tokens,  # Use configured max tokens
+                        request_id=request_id,
+                        function_name="report",
+                    ),
+                    timeout=report_generation_timeout,
                 )
+                llm_regeneration_ms = (time.time() - llm_regeneration_start) * 1000
 
+                # Post-process regenerated report
+                report = post_process_report(report)
                 report_with_refs = append_references_section(report, search_results, research_papers)
-                validation_passed, validation_reason = validate_report_output(report_with_refs)
+
+                # Check for meta-commentary again
+                has_meta_commentary, meta_reason = detect_meta_commentary(report)
+                if has_meta_commentary:
+                    meta_commentary_detected = True
+                    logger.warning(
+                        f"Meta-commentary detected in regeneration: {meta_reason}",
+                        extra={
+                            "request_id": request_id,
+                            "meta_reason": meta_reason,
+                        },
+                    )
+                    validation_passed = False
+                    validation_reason = f"Meta-commentary in regeneration: {meta_reason}"
+                else:
+                    # Full validation
+                    validation_passed, validation_reason = validate_report_output(report_with_refs)
+                    citations_valid, citations_reason, citation_quality_score = validate_citations(report_with_refs, search_results, research_papers)
+                    if not citations_valid:
+                        validation_passed = False
+                        validation_reason = f"Citation validation failed: {citations_reason}"
 
             except Exception as e:
                 logger.error(
@@ -746,31 +1030,68 @@ Just the report with sections: Executive Summary, Key Findings, Detailed Analysi
                     extra={
                         "request_id": request_id,
                         "error": str(e),
+                        "regeneration_attempt": regeneration_count,
                     },
                 )
-                if regeneration_count == max_regenerations:
-                    # Use fallback on final failure
-                    report_with_refs = f"""## Executive Summary
+                validation_passed = False
+                validation_reason = f"Regeneration failed: {str(e)}"
 
-Unable to generate a valid report for: {user_query}
+            regeneration_ms = (time.time() - regeneration_start) * 1000
 
-## Evidence
+        # If validation still failed after 1 regeneration, use deterministic fallback
+        if not validation_passed:
+            logger.warning(
+                f"Validation failed after {report_generation_attempts} attempts. Using deterministic fallback.",
+                extra={
+                    "request_id": request_id,
+                    "validation_reason": validation_reason,
+                    "report_generation_attempts": report_generation_attempts,
+                },
+            )
+            report_with_refs = generate_deterministic_fallback(user_query, search_results, research_papers)
+            report_fallback_used = True
+            validation_passed = True
+            validation_reason = "Used deterministic fallback"
+        else:
+            regeneration_ms = 0
 
-Retrieved sources were insufficient to answer this query accurately.
+        execution_time_ms = (time.time() - start_time) * 1000  # Convert to milliseconds
 
-## References
+        # Track answer metrics
+        try:
+            evaluator = get_evaluator()
+            # Calculate citation count from report
+            import re
+            citation_count = len(re.findall(r'\[(\d+)\]', report_with_refs))
 
-No reliable sources available."""
-                    validation_passed = True
-                    validation_reason = "Used fallback after regeneration failure"
-
-        execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            evaluator.track_answer_metrics(
+                structure_score=1.0 if validation_passed else 0.0,
+                leakage_score=1.0 if "prompt leakage" not in validation_reason.lower() else 0.0,
+                hallucination_risk=1.0 - confidence_score,  # Inverse of confidence
+                citation_score=citation_quality_score,
+                request_id=request_id,
+                report_generation_time_ms=execution_time_ms,
+                citation_count=citation_count,
+                contradiction_count=len(contradictions),
+                regeneration_count=regeneration_count,
+                final_confidence=confidence_score,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to track answer metrics: {e}")
 
         logger.info(
             f"Report node completed successfully",
             extra={
                 "request_id": request_id,
-                "execution_time_ms": execution_time,
+                "execution_time_ms": execution_time_ms,
+                "validation_ms": validation_ms,
+                "prompt_build_ms": prompt_build_ms,
+                "llm_report_ms": llm_report_ms,
+                "regeneration_ms": regeneration_ms,
+                "regeneration_count": regeneration_count,
+                "report_generation_attempts": report_generation_attempts,
+                "meta_commentary_detected": meta_commentary_detected,
+                "report_fallback_used": report_fallback_used,
                 "prompt_length": len(prompt),
                 "report_length": len(report_with_refs),
                 "sources_received": len(search_results),
@@ -781,7 +1102,6 @@ No reliable sources available."""
                 "validation_passed": validation_passed,
                 "validation_reason": validation_reason,
                 "generation_attempt": 1,
-                "regeneration_count": regeneration_count,
                 "citation_validation_status": citations_valid,
                 "citation_validation_reason": citations_reason,
                 "citation_quality_score": citation_quality_score,
@@ -814,6 +1134,7 @@ No reliable sources available."""
                 "contradictions_detected": len(contradictions),
                 "evidence_sufficient": evidence_assessment['is_sufficient'],
                 "evidence_reason": evidence_assessment['reason'],
+                "citation_quality": citation_quality_score,
             },
         }
         # Reference the same content instead of duplicating
@@ -823,22 +1144,41 @@ No reliable sources available."""
             "node": "report",
             "action": "synthesized_final_report",
             "status": "completed",
-            "execution_time_ms": execution_time,
+            "execution_time_ms": execution_time_ms,
             "report_length": len(report_with_refs),
             "confidence_level": confidence_metrics['overall_confidence'],
             "contradictions_detected": len(contradictions),
         })
 
+        # Track answer metrics for evaluation
+        try:
+            evaluator = get_evaluator()
+            evaluator.track_answer_metrics(
+                structure_score=1.0 if structure_valid else 0.0,
+                leakage_score=0.0 if leakage_valid else 1.0,
+                hallucination_risk=len(contradictions) / max(len(search_results) + len(research_papers), 1),
+                citation_score=citation_quality_score,
+                request_id=request_id,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to track answer metrics: {str(e)}",
+                extra={
+                    "request_id": request_id,
+                    "error": str(e),
+                },
+            )
+
         return updated_state
 
     except Exception as e:
-        execution_time = (time.time() - start_time) * 1000
+        execution_time_ms = (time.time() - start_time) * 1000
 
         logger.error(
             f"Report node failed: {str(e)}",
             extra={
                 "request_id": request_id,
-                "execution_time_ms": execution_time,
+                "execution_time_ms": execution_time_ms,
                 "error": str(e),
                 "error_type": type(e).__name__,
             },
@@ -891,7 +1231,7 @@ Error: {str(e)}
             "node": "report",
             "action": "synthesized_final_report",
             "status": "failed",
-            "execution_time_ms": execution_time,
+            "execution_time_ms": execution_time_ms,
             "report_length": len(fallback_report),
         })
 
