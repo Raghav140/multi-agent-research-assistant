@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for production-ready deployment
 
 # Stage 1: Builder
-FROM python:3.10.11-slim as builder
+FROM python:3.10-slim as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     gcc \
     g++ \
     make \
@@ -27,12 +27,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 COPY pyproject.toml ./
 COPY ruff.toml ./
+COPY README.md ./
 
 # Install dependencies into virtual environment
 RUN uv pip install -e ".[dev]"
 
 # Stage 2: Runtime
-FROM python:3.10.11-slim
+FROM python:3.10-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \

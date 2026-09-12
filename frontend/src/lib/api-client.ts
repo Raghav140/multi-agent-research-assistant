@@ -11,9 +11,15 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (() => {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('apiUrl') || 'http://127.0.0.1:8000';
+    // Use relative path for production (served by nginx)
+    // Use localhost:8000 for development
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isDev && window.location.port === '5173') {
+      return 'http://127.0.0.1:8000';
+    }
+    return ''; // Use same-origin for production
   }
-  return 'http://127.0.0.1:8000';
+  return '';
 })();
 const DEFAULT_TIMEOUT = 120000; // 120 seconds for research requests
 

@@ -40,8 +40,7 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="APP_",
-        env_file=".env",
-        env_file_encoding="utf-8",
+        env_file=None,
         case_sensitive=False,
         extra="ignore",
     )
@@ -108,49 +107,6 @@ class LoggingSettings(BaseSettings):
     )
 
 
-class DatabaseSettings(BaseSettings):
-    """Database configuration settings.
-
-    Attributes:
-        database_url: PostgreSQL connection URL
-        database_pool_size: Connection pool size
-        database_max_overflow: Maximum pool overflow
-    """
-
-    database_url: str = Field(
-        default="postgresql://user:password@localhost:5432/multi_agent_db",
-        description="PostgreSQL connection URL",
-    )
-    database_pool_size: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Connection pool size",
-    )
-    database_max_overflow: int = Field(
-        default=20,
-        ge=0,
-        le=100,
-        description="Maximum pool overflow",
-    )
-
-    @field_validator("database_url")
-    @classmethod
-    def validate_database_url(cls, v: str) -> str:
-        """Validate database URL format."""
-        if not v.startswith(("postgresql://", "postgresql+asyncpg://")):
-            raise ValueError("Database URL must start with postgresql:// or postgresql+asyncpg://")
-        return v
-
-    model_config = SettingsConfigDict(
-        env_prefix="DATABASE_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-
 class SQLiteSettings(BaseSettings):
     """SQLite database configuration settings.
 
@@ -170,42 +126,6 @@ class SQLiteSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="SQLITE_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-
-class RedisSettings(BaseSettings):
-    """Redis configuration settings.
-
-    Attributes:
-        redis_url: Redis connection URL
-        redis_cache_ttl: Cache time-to-live in seconds
-    """
-
-    redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        description="Redis connection URL",
-    )
-    redis_cache_ttl: int = Field(
-        default=3600,
-        ge=60,
-        le=86400,
-        description="Cache time-to-live in seconds",
-    )
-
-    @field_validator("redis_url")
-    @classmethod
-    def validate_redis_url(cls, v: str) -> str:
-        """Validate Redis URL format."""
-        if not v.startswith("redis://"):
-            raise ValueError("Redis URL must start with redis://")
-        return v
-
-    model_config = SettingsConfigDict(
-        env_prefix="REDIS_",
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
@@ -312,9 +232,8 @@ class OllamaSettings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_prefix="OLLAMA_",
-        env_file=".env",
-        env_file_encoding="utf-8",
+        env_prefix="",
+        env_file=None,
         case_sensitive=False,
         extra="ignore",
     )
@@ -421,9 +340,7 @@ class Settings:
         app: AppSettings | None = None,
         server: ServerSettings | None = None,
         logging: LoggingSettings | None = None,
-        database: DatabaseSettings | None = None,
         sqlite: SQLiteSettings | None = None,
-        redis: RedisSettings | None = None,
         llm: LLMSettings | None = None,
         ollama: OllamaSettings | None = None,
         rag: RAGSettings | None = None,
@@ -433,9 +350,7 @@ class Settings:
         self.app = app or AppSettings()
         self.server = server or ServerSettings()
         self.logging = logging or LoggingSettings()
-        self.database = database or DatabaseSettings()
         self.sqlite = sqlite or SQLiteSettings()
-        self.redis = redis or RedisSettings()
         self.llm = llm or LLMSettings()
         self.ollama = ollama or OllamaSettings()
         self.rag = rag or RAGSettings()
@@ -488,21 +403,6 @@ class Settings:
         return self.logging.log_format
 
     @property
-    def database_url(self) -> str:
-        """Get database URL."""
-        return self.database.database_url
-
-    @property
-    def database_pool_size(self) -> int:
-        """Get database pool size."""
-        return self.database.database_pool_size
-
-    @property
-    def database_max_overflow(self) -> int:
-        """Get database max overflow."""
-        return self.database.database_max_overflow
-
-    @property
     def research_memory_db_path(self) -> str:
         """Get research memory database path."""
         return self.sqlite.research_memory_db_path
@@ -511,16 +411,6 @@ class Settings:
     def evaluation_metrics_db_path(self) -> str:
         """Get evaluation metrics database path."""
         return self.sqlite.evaluation_metrics_db_path
-
-    @property
-    def redis_url(self) -> str:
-        """Get Redis URL."""
-        return self.redis.redis_url
-
-    @property
-    def redis_cache_ttl(self) -> int:
-        """Get Redis cache TTL."""
-        return self.redis.redis_cache_ttl
 
     @property
     def openai_api_key(self) -> str:
@@ -623,12 +513,11 @@ class Settings:
         return self.security.rate_limit_per_minute
 
 
-@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance.
+    """Get settings instance.
 
     Returns:
-        Settings: Cached settings instance
+        Settings: Settings instance
     """
     return Settings()
 
