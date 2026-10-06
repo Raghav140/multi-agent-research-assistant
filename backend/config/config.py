@@ -302,8 +302,8 @@ class SecuritySettings(BaseSettings):
         description="Access token expiration time in minutes",
     )
     cors_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:4173", "http://127.0.0.1:4173"],
-        description="Allowed CORS origins",
+        default=[],
+        description="Allowed CORS origins (empty list denies all; configure via CORS_ORIGINS env var)",
     )
     rate_limit_per_minute: int = Field(
         default=60,

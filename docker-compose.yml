@@ -20,6 +20,9 @@ services:
       - OLLAMA_REPORT_TEMPERATURE=0.3
       - OLLAMA_REPORT_MAX_TOKENS=384
       - OLLAMA_REPORT_TIMEOUT=60
+      # CORS origins - configure for production domain, e.g., CORS_ORIGINS=["https://your-domain.example"]
+      # For same-domain deployment (frontend and API on same domain), set to CORS_ORIGINS=[]
+      - CORS_ORIGINS=[]
     volumes:
       # Persistent SQLite databases
       - app_data:/app/data
@@ -45,15 +48,18 @@ services:
     volumes:
       # Persistent Ollama models
       - ollama_models:/root/.ollama
+      # Entrypoint script for model initialization
+      - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro
     networks:
       - app-network
     restart: unless-stopped
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 300s
     # GPU support (uncomment if GPU available)
     # deploy:
     #   resources:
