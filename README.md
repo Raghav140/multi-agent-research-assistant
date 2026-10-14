@@ -289,13 +289,8 @@ The Docker Compose configuration includes:
 - Backend accesses Ollama via internal network (`http://ollama:11434`)
 - Browser cannot access Ollama directly (security)
 - Model storage is persistent via Docker volume
+- Model initialization is automatic on startup (checks for qwen3:4b and pulls if missing)
 - See `OLLAMA_DEPLOYMENT.md` for detailed setup instructions
-
-**Model Setup**:
-After starting containers, pull the required model:
-```bash
-docker exec -it multi-agent-ollama ollama pull qwen3:4b
-```
 
 ### Backup & Recovery
 
@@ -325,7 +320,7 @@ docker exec -it multi-agent-ollama ollama pull qwen3:4b
 
 **Ollama Models**:
 - Volume persistence is sufficient (Docker volume: `ollama_models`)
-- Re-pull is acceptable if volume is lost: `docker exec -it multi-agent-ollama ollama pull qwen3:4b`
+- Automatic pull on startup if volume is lost (entrypoint script handles this)
 - Model backup not necessary (models can be re-downloaded from Ollama registry)
 
 **Recovery Procedures**:
@@ -357,20 +352,20 @@ docker exec -it multi-agent-ollama ollama pull qwen3:4b
 
 **Scenario E: Ollama Container Deleted**
 - **Survives Automatically**: SQLite databases
-- **Must Be Restored**: Ollama models (re-pull)
+- **Must Be Restored**: Ollama models (automatic pull on startup if volume lost)
 - **Action**:
   ```bash
   docker-compose up -d ollama
-  docker exec -it multi-agent-ollama ollama pull qwen3:4b
   ```
+  Note: The entrypoint script will automatically pull qwen3:4b if the model is missing from the persistent volume.
 
 **Scenario F: Entire Docker Host Lost**
 - **Survives Automatically**: Nothing
-- **Must Be Restored**: SQLite databases from off-site backup, Ollama models (re-pull)
+- **Must Be Restored**: SQLite databases from off-site backup, Ollama models (automatic pull on startup)
 - **Action**:
   1. Restore from off-site backup
   2. Deploy application
-  3. Pull Ollama model: `docker exec -it multi-agent-ollama ollama pull qwen3:4b`
+  3. Note: The entrypoint script will automatically pull qwen3:4b on first startup
 
 **Disaster Recovery Limitations**:
 - No automated off-site backup (requires manual configuration)
@@ -395,7 +390,7 @@ Configuration is managed through environment variables. See `.env.example` for a
 - `APP_ENV=production`
 - `APP_DEBUG=false` (disables API docs, reduces error detail)
 - `CORS_ORIGINS` set to production domain only
-- `OLLAMA_HOST` configured for deployment (host.docker.internal or internal service)
+- `OLLAMA_HOST` configured for deployment (Docker Compose: `http://ollama:11434`, Docker Desktop: `http://host.docker.internal:11434`)
 - SQLite databases in `/app/data/` (Docker volume)
 
 ### Backend Variables
@@ -464,7 +459,7 @@ Browser → Vite Dev Server → FastAPI → Local Ollama (127.0.0.1:11434)
 
 **Private Production Flow:**
 ```
-Browser → nginx/HTTPS → FastAPI → Internal Ollama (host.docker.internal:11434 or internal service)
+Browser → nginx/HTTPS → FastAPI → Internal Ollama (http://ollama:11434 via Docker network)
 ```
 
 **Security Notes:**

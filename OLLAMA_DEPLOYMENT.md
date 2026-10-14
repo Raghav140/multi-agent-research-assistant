@@ -23,7 +23,7 @@ qwen3:4b model
 - **Browser**: Cannot access Ollama directly (no exposed endpoint)
 - **FastAPI**: Accesses Ollama via internal Docker network (`http://ollama:11434`)
 - **Ollama**: Only accessible within Docker network (`app-network`)
-- **Port 11434**: Exposed only for Docker Compose networking, not to public internet
+- **Port 11434**: Not exposed to host machine - internal network only
 
 ## Docker Compose Configuration
 
@@ -33,19 +33,19 @@ qwen3:4b model
 ollama:
   image: ollama/ollama:latest
   container_name: multi-agent-ollama
-  ports:
-    - "11434:11434"
   volumes:
     - ollama_models:/root/.ollama
+    - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro
   networks:
     - app-network
   restart: unless-stopped
+  entrypoint: ["/bin/bash", "/entrypoint.sh"]
   healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+    test: ["CMD", "ollama", "list"]
     interval: 30s
     timeout: 10s
     retries: 3
-    start_period: 40s
+    start_period: 300s
 ```
 
 ### Backend Service
@@ -55,25 +55,30 @@ backend:
   environment:
     - OLLAMA_HOST=http://ollama:11434
   depends_on:
-    - ollama
+    ollama:
+      condition: service_healthy
   networks:
     - app-network
 ```
 
 ## Model Setup
 
-### Pull the Model
+### Automatic Initialization
 
-After starting the containers, pull the required model:
+The Ollama service uses an entrypoint script that automatically:
+1. Starts the Ollama server
+2. Waits for it to become ready (up to 5 minutes)
+3. Checks if the `qwen3:4b` model exists
+4. Pulls the model automatically if it is missing
 
-```bash
-docker exec -it multi-agent-ollama ollama pull qwen3:4b
-```
+No manual model pull is required for normal deployment. The model download occurs on first startup if the persistent volume is empty.
 
 ### Verify Model
 
+To check if the model is available:
+
 ```bash
-docker exec -it multi-agent-ollama ollama list
+docker exec multi-agent-ollama ollama list
 ```
 
 Expected output:
@@ -104,11 +109,13 @@ OLLAMA_STREAM=false
 1. Update `docker-compose.yml` with Ollama service
 2. Set `OLLAMA_HOST=http://ollama:11434` in backend environment
 3. Run `docker-compose up -d`
-4. Pull model: `docker exec -it multi-agent-ollama ollama pull qwen3:4b`
+
+The entrypoint script will automatically pull `qwen3:4b` on first startup if the model is missing.
 
 **Advantages**:
 - Self-contained deployment
 - Persistent model storage
+- Automatic model initialization
 - Healthcheck integration
 - Network isolation
 
@@ -166,8 +173,10 @@ ollama:
 
 ### Check Ollama Health
 
+Since port 11434 is not exposed to the host, verify Ollama status from within the container:
+
 ```bash
-curl http://localhost:11434/api/tags
+docker exec multi-agent-ollama ollama list
 ```
 
 ### Check Backend Connectivity
@@ -203,9 +212,13 @@ curl -X POST http://localhost:8000/api/v1/research \
 **Symptoms**: Backend reports model not found
 
 **Solutions**:
-1. Pull model: `docker exec -it multi-agent-ollama ollama pull qwen3:4b`
-2. List models: `docker exec -it multi-agent-ollama ollama list`
-3. Check model name in `.env` matches pulled model
+1. List models: `docker exec multi-agent-ollama ollama list`
+2. If model is missing, restart the Ollama container to trigger automatic pull:
+   ```bash
+   docker-compose restart ollama
+   ```
+3. For manual diagnostics, you can pull directly: `docker exec multi-agent-ollama ollama pull qwen3:4b`
+4. Check model name in `.env` matches the expected model name
 
 ### GPU Not Working
 
